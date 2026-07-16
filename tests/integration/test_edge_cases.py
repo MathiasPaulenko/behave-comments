@@ -1011,7 +1011,9 @@ def test_key_sanitization_in_tags(run_behave):
 
             @then("the key is sanitized")
             def step_check(context):
-                assert context.sanitized_tags == ["@test-case-TC-001"], f"Got {context.sanitized_tags}"
+                assert context.sanitized_tags == ["@test-case-TC-001"], (
+                    f"Got {context.sanitized_tags}"
+                )
         """,
         environment_content="""
             from behave_comments import extract_annotations, annotations_to_tags
@@ -1055,8 +1057,7 @@ def test_yaml_doc_string_parsed(run_behave):
     assert result.returncode == 0
 
 
-def test_multiple_lifecycle_hooks_same_type(run_behave):
-    """Multiple hooks of the same type should all execute."""
+def test_multiple_lifecycle_hooks_same_type_all_execute(run_behave):
     result = run_behave(
         feature_content="""
             # @before-feature: Given step one
@@ -1109,7 +1110,10 @@ def test_annotation_with_colon_separator(run_behave):
             @then("the colon annotation is parsed")
             def step_check(context):
                 anns = context.metadata["feature"]
-                assert any(a["key"] == "jira" and a["value"] == "TICKET-999" for a in anns), f"Got {anns}"
+                assert any(
+                    a["key"] == "jira" and a["value"] == "TICKET-999"
+                    for a in anns
+                ), f"Got {anns}"
         """,
         environment_content="""
             from behave_comments import inject_metadata
@@ -1137,7 +1141,10 @@ def test_annotation_with_equals_separator(run_behave):
             @then("the equals annotation is parsed")
             def step_check(context):
                 anns = context.metadata["feature"]
-                assert any(a["key"] == "priority" and a["value"] == "high" for a in anns), f"Got {anns}"
+                assert any(
+                    a["key"] == "priority" and a["value"] == "high"
+                    for a in anns
+                ), f"Got {anns}"
         """,
         environment_content="""
             from behave_comments import inject_metadata
@@ -1261,7 +1268,9 @@ def test_before_feature_hook_with_execute_steps(run_behave):
 
             @then("the feature setup was executed")
             def step_check(context):
-                assert getattr(context, "feature_setup", False), "before-feature hook did not execute"
+                assert getattr(
+                    context, "feature_setup", False
+                ), "before-feature hook did not execute"
         """,
         environment_content="""
             from behave_comments import setup_lifecycle_hooks, run_before_feature
@@ -1280,11 +1289,7 @@ def test_bom_feature_file_annotations_parsed_by_library(tmp_path):
 
     feature_file = tmp_path / "test.feature"
     feature_file.write_text(
-        "# @jira TICKET-BOM\n"
-        "Feature: BOM Feature\n"
-        "\n"
-        "  Scenario: S1\n"
-        "    Given a step\n",
+        "# @jira TICKET-BOM\nFeature: BOM Feature\n\n  Scenario: S1\n    Given a step\n",
         encoding="utf-8-sig",
     )
     anns = extract_annotations(str(feature_file))
@@ -1296,8 +1301,6 @@ def test_bom_feature_file_annotations_parsed_by_library(tmp_path):
 
 def test_crlf_line_endings_feature_file(run_behave):
     """Feature files with CRLF line endings should work correctly."""
-    import subprocess
-    import sys
 
     result = run_behave(
         feature_content=(
@@ -1554,16 +1557,16 @@ def test_yaml_list_doc_string_integration(run_behave):
 def test_csv_with_quoted_fields_integration(run_behave):
     """CSV with quoted fields should be parsed correctly."""
     feature = (
-        'Feature: CSV Quoted\n'
-        '\n'
-        '  Scenario: Parse CSV with quotes\n'
-        '    Given a step with a CSV doc string\n'
+        "Feature: CSV Quoted\n"
+        "\n"
+        "  Scenario: Parse CSV with quotes\n"
+        "    Given a step with a CSV doc string\n"
         '      """csv\n'
-        '      name,desc\n'
+        "      name,desc\n"
         '      Alice,"Hello, World"\n'
         '      Bob,"He said ""hi"" there"\n'
         '      """\n'
-        '    Then the CSV has 2 rows\n'
+        "    Then the CSV has 2 rows\n"
     )
     result = run_behave(
         feature_content=feature,

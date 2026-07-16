@@ -9,9 +9,7 @@ from typing import Any
 from behave_comments.errors import AnnotationParseError
 from behave_comments.models import Annotation
 
-_ANNOTATION_RE = re.compile(
-    r"^#\s*@(?P<key>[\w-]+)[.:=]{0,2}\s*(?P<value>.*)$"
-)
+_ANNOTATION_RE = re.compile(r"^#\s*@(?P<key>[\w-]+)[.:=]{0,2}\s*(?P<value>.*)$")
 
 
 _LIFECYCLE_PREFIX_RE = re.compile(

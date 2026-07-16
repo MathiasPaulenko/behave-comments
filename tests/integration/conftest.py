@@ -47,14 +47,10 @@ def run_behave(tmp_path: Path) -> Callable[..., BehaveResult]:
         features_dir.mkdir(parents=True, exist_ok=True)
         steps_dir.mkdir(parents=True, exist_ok=True)
 
-        (features_dir / feature_filename).write_text(
-            dedent(feature_content), encoding="utf-8"
-        )
+        (features_dir / feature_filename).write_text(dedent(feature_content), encoding="utf-8")
 
         if steps_content:
-            (steps_dir / "steps.py").write_text(
-                dedent(steps_content), encoding="utf-8"
-            )
+            (steps_dir / "steps.py").write_text(dedent(steps_content), encoding="utf-8")
 
         if environment_content:
             (features_dir / "environment.py").write_text(

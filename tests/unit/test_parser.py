@@ -498,9 +498,7 @@ def test_parse_csv_with_field_size_limit_error(monkeypatch) -> None:
     monkeypatch.setattr(
         csv_module,
         "DictReader",
-        lambda *a, **kw: (_ for _ in ()).throw(
-            csv_module.Error("line contains null byte")
-        ),
+        lambda *a, **kw: (_ for _ in ()).throw(csv_module.Error("line contains null byte")),
     )
     with pytest.raises(ParseError) as exc_info:
         _parse_csv("name,age\nAlice,30")
@@ -534,11 +532,7 @@ def test_parse_csv_with_quoted_fields() -> None:
 
 
 def test_parse_xml_with_namespaces() -> None:
-    xml_text = (
-        '<root xmlns:ns="http://example.com">'
-        "<ns:child>value</ns:child>"
-        "</root>"
-    )
+    xml_text = '<root xmlns:ns="http://example.com"><ns:child>value</ns:child></root>'
     root = _parse_xml(xml_text)
     assert root.tag == "root"
     child = root.find("{http://example.com}child")
@@ -546,7 +540,7 @@ def test_parse_xml_with_namespaces() -> None:
     assert child.text == "value"
 
 
-def test_parse_xml_with_attributes() -> None:
+def test_parse_xml_with_multiple_attributes() -> None:
     xml_text = '<root id="42" status="active"><item>text</item></root>'
     root = _parse_xml(xml_text)
     assert root.get("id") == "42"
@@ -621,7 +615,7 @@ def test_detect_content_type_case_mixed() -> None:
 
 
 def test_extract_text_block_json_array() -> None:
-    step = FakeStep(text='json\n[1, 2, 3]')
+    step = FakeStep(text="json\n[1, 2, 3]")
     tb = extract_text_block(step)
     assert tb is not None
     assert tb.content_type == "json"
@@ -686,7 +680,7 @@ def test_extract_text_block_text_plain_unicode() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_parse_text_xml_dispatch() -> None:
+def test_parse_text_xml_dispatch_with_child() -> None:
     root = parse_text("<root><child>text</child></root>", "xml")
     assert root.tag == "root"
     assert root.find("child").text == "text"
@@ -862,7 +856,7 @@ def test_extract_text_block_multiline_text_plain() -> None:
     assert tb.parsed == "line1\nline2\nline3"
 
 
-def test_extract_text_block_content_type_only_no_body() -> None:
+def test_extract_text_block_yaml_type_only_no_body() -> None:
     step = FakeStep(text="yaml\n")
     tb = extract_text_block(step)
     assert tb is not None

@@ -42,6 +42,4 @@ class LifecycleStepError(BehaveCommentsError):
         self.hook_type = hook_type
         self.step_text = step_text
         self.detail = detail
-        super().__init__(
-            f"Lifecycle step failed in {hook_type!r} hook: {step_text!r} — {detail}"
-        )
+        super().__init__(f"Lifecycle step failed in {hook_type!r} hook: {step_text!r} — {detail}")

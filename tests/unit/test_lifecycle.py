@@ -652,7 +652,7 @@ def test_run_after_step_executes(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_parse_lifecycle_hooks_mixed_with_annotations(tmp_path) -> None:
+def test_parse_lifecycle_hooks_mixed_with_annotations_and_steps(tmp_path) -> None:
     path = _write_feature(
         tmp_path,
         "# @jira TICKET-1\n"
@@ -744,17 +744,13 @@ def test_lifecycle_hook_repr() -> None:
 
 
 def test_parse_lifecycle_line_step_text_with_colons() -> None:
-    hook = parse_lifecycle_line(
-        "# @before-feature: Given the user: Alice exists", 1
-    )
+    hook = parse_lifecycle_line("# @before-feature: Given the user: Alice exists", 1)
     assert hook is not None
     assert hook.step_text == "Given the user: Alice exists"
 
 
 def test_parse_lifecycle_line_step_text_with_special_chars() -> None:
-    hook = parse_lifecycle_line(
-        "# @after-scenario: Then the value is $42.00 (USD)", 1
-    )
+    hook = parse_lifecycle_line("# @after-scenario: Then the value is $42.00 (USD)", 1)
     assert hook is not None
     assert hook.step_text == "Then the value is $42.00 (USD)"
 
@@ -891,9 +887,7 @@ def test_run_after_all_executes_hooks() -> None:
 def test_setup_lifecycle_hooks_from_path(tmp_path) -> None:
     feature_file = tmp_path / "test.feature"
     feature_file.write_text(
-        "# @before-all: Given global setup\n"
-        "# @after-all: Then global teardown\n"
-        "Feature: Test\n",
+        "# @before-all: Given global setup\n# @after-all: Then global teardown\nFeature: Test\n",
         encoding="utf-8",
     )
     context = FakeContext()
@@ -908,8 +902,7 @@ def test_setup_lifecycle_hooks_from_path(tmp_path) -> None:
 def test_setup_lifecycle_hooks_from_path_then_run_before_all(tmp_path) -> None:
     feature_file = tmp_path / "test.feature"
     feature_file.write_text(
-        "# @before-all: Given global setup\n"
-        "Feature: Test\n",
+        "# @before-all: Given global setup\nFeature: Test\n",
         encoding="utf-8",
     )
     context = FakeContext()
@@ -957,6 +950,7 @@ def test_execute_step_outside_feature_falls_through_to_registry(monkeypatch) -> 
 
 def test_execute_step_outside_feature_falls_through_and_step_not_found(monkeypatch) -> None:
     """When execute_steps fails with 'outside of feature' and step not in registry, raise."""
+
     def impl(step_text: str) -> None:
         raise AssertionError("execute_steps() called outside of feature")
 
@@ -1007,11 +1001,13 @@ def test_run_hooks_continue_on_error_three_hooks(monkeypatch) -> None:
 
     _patch_registry(
         monkeypatch,
-        FakeRegistry({
-            "Given ok": step_ok,
-            "Given fail1": step_fail1,
-            "Given fail2": step_fail2,
-        }),
+        FakeRegistry(
+            {
+                "Given ok": step_ok,
+                "Given fail1": step_fail1,
+                "Given fail2": step_fail2,
+            }
+        ),
     )
     context = FakeContext()
     context._lifecycle_hooks = [

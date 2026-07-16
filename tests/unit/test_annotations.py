@@ -506,9 +506,7 @@ def test_extract_annotations_pending_at_end_of_file(tmp_path) -> None:
 def test_extract_annotations_pending_after_feature_no_scenario(tmp_path) -> None:
     path = _write_feature(
         tmp_path,
-        "Feature: Test\n"
-        "# @jira TICKET-2\n"
-        "# @owner team-b\n",
+        "Feature: Test\n# @jira TICKET-2\n# @owner team-b\n",
     )
     anns = extract_annotations(path)
     assert len(anns) == 2
@@ -541,12 +539,7 @@ def test_extract_annotations_only_feature_keyword(tmp_path) -> None:
 def test_extract_annotations_multiple_annotations_same_line_scope(tmp_path) -> None:
     path = _write_feature(
         tmp_path,
-        "Feature: Test\n"
-        "Scenario: S1\n"
-        "# @a 1\n"
-        "# @b 2\n"
-        "# @c 3\n"
-        "Given a step\n",
+        "Feature: Test\nScenario: S1\n# @a 1\n# @b 2\n# @c 3\nGiven a step\n",
     )
     anns = extract_annotations(path)
     assert len(anns) == 3
@@ -558,8 +551,7 @@ def test_extract_annotations_multiple_annotations_same_line_scope(tmp_path) -> N
 def test_extract_annotations_annotation_with_special_chars_in_value(tmp_path) -> None:
     path = _write_feature(
         tmp_path,
-        "# @url https://example.com/path?q=1&r=2\n"
-        "Feature: Test\n",
+        "# @url https://example.com/path?q=1&r=2\nFeature: Test\n",
     )
     anns = extract_annotations(path)
     assert len(anns) == 1
@@ -570,8 +562,7 @@ def test_extract_annotations_annotation_with_special_chars_in_value(tmp_path) ->
 def test_extract_annotations_key_with_dots_not_matched(tmp_path) -> None:
     path = _write_feature(
         tmp_path,
-        "# @config.value true\n"
-        "Feature: Test\n",
+        "# @config.value true\nFeature: Test\n",
     )
     anns = extract_annotations(path)
     assert len(anns) == 1
@@ -706,8 +697,7 @@ def test_annotations_to_tags_collapses_hyphens_from_special_chars() -> None:
 def test_extract_annotations_bom_file(tmp_path) -> None:
     path = _write_feature(
         tmp_path,
-        "# @priority high\n"
-        "Feature: Test\n",
+        "# @priority high\nFeature: Test\n",
     )
     path.write_bytes(b"\xef\xbb\xbf" + path.read_bytes())
     anns = extract_annotations(path)
@@ -719,10 +709,7 @@ def test_extract_annotations_bom_file(tmp_path) -> None:
 def test_extract_annotations_star_keyword_as_step(tmp_path) -> None:
     path = _write_feature(
         tmp_path,
-        "Feature: Test\n"
-        "  Scenario: S\n"
-        "    # @step-level value\n"
-        "    * I do something\n",
+        "Feature: Test\n  Scenario: S\n    # @step-level value\n    * I do something\n",
     )
     anns = extract_annotations(path)
     assert len(anns) == 1
@@ -771,8 +758,7 @@ def test_annotations_to_tags_dedup_with_empty_key_skipped() -> None:
 def test_extract_annotations_feature_no_name(tmp_path) -> None:
     path = _write_feature(
         tmp_path,
-        "# @jira TICKET-1\n"
-        "Feature:\n",
+        "# @jira TICKET-1\nFeature:\n",
     )
     anns = extract_annotations(path)
     assert len(anns) == 1
@@ -797,10 +783,7 @@ def test_extract_annotations_tabs_as_indentation(tmp_path) -> None:
 def test_extract_annotations_tag_line_ignored(tmp_path) -> None:
     path = _write_feature(
         tmp_path,
-        "@smoke @wip\n"
-        "Feature: Test\n"
-        "  Scenario: S\n"
-        "    Given a step\n",
+        "@smoke @wip\nFeature: Test\n  Scenario: S\n    Given a step\n",
     )
     anns = extract_annotations(path)
     assert len(anns) == 0
@@ -887,10 +870,7 @@ def test_parse_annotation_line_at_sign_space() -> None:
 def test_extract_annotations_pending_at_end(tmp_path) -> None:
     path = _write_feature(
         tmp_path,
-        "Feature: Test\n"
-        "  Scenario: S1\n"
-        "    Given a step\n"
-        "# @trailing TRAIL-1\n",
+        "Feature: Test\n  Scenario: S1\n    Given a step\n# @trailing TRAIL-1\n",
     )
     anns = extract_annotations(path)
     assert len(anns) == 1
@@ -963,10 +943,7 @@ def test_annotations_to_tags_key_with_dot() -> None:
 def test_extract_annotations_scenario_template(tmp_path) -> None:
     path = _write_feature(
         tmp_path,
-        "Feature: Test\n"
-        "# @template-id T-1\n"
-        "Scenario Template: Login with <user>\n"
-        "  Given a step\n",
+        "Feature: Test\n# @template-id T-1\nScenario Template: Login with <user>\n  Given a step\n",
     )
     anns = extract_annotations(path)
     assert len(anns) == 1
@@ -974,10 +951,6 @@ def test_extract_annotations_scenario_template(tmp_path) -> None:
     assert anns[0].value == "T-1"
     assert anns[0].scope == "scenario"
     assert anns[0].scope_name == "Login with <user>"
-
-
-def test_annotations_to_tags_empty_list() -> None:
-    assert annotations_to_tags([]) == []
 
 
 def test_annotations_to_tags_empty_list_dedup() -> None:
@@ -1029,10 +1002,7 @@ def test_extract_annotations_feature_with_tags(tmp_path) -> None:
 def test_extract_annotations_feature_no_space_after_colon(tmp_path) -> None:
     path = _write_feature(
         tmp_path,
-        "# @jira TICKET-1\n"
-        "Feature:NoSpace\n"
-        "  Scenario: S1\n"
-        "    Given a step\n",
+        "# @jira TICKET-1\nFeature:NoSpace\n  Scenario: S1\n    Given a step\n",
     )
     anns = extract_annotations(path)
     assert len(anns) == 1
@@ -1043,10 +1013,7 @@ def test_extract_annotations_feature_no_space_after_colon(tmp_path) -> None:
 def test_extract_annotations_scenario_no_space_after_colon(tmp_path) -> None:
     path = _write_feature(
         tmp_path,
-        "Feature: Test\n"
-        "# @id SC-001\n"
-        "Scenario:NoSpace\n"
-        "  Given a step\n",
+        "Feature: Test\n# @id SC-001\nScenario:NoSpace\n  Given a step\n",
     )
     anns = extract_annotations(path)
     assert len(anns) == 1
@@ -1057,11 +1024,7 @@ def test_extract_annotations_scenario_no_space_after_colon(tmp_path) -> None:
 def test_extract_annotations_rule_no_space_after_colon(tmp_path) -> None:
     path = _write_feature(
         tmp_path,
-        "Feature: Test\n"
-        "# @rule-ann R-1\n"
-        "Rule:NoSpace\n"
-        "  Scenario: S1\n"
-        "    Given a step\n",
+        "Feature: Test\n# @rule-ann R-1\nRule:NoSpace\n  Scenario: S1\n    Given a step\n",
     )
     anns = extract_annotations(path)
     assert len(anns) == 1

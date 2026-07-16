@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from behave_comments.decorators import with_parsed_text
+from behave_comments.errors import ParseError
 from behave_comments.models import TextBlock
 from tests.conftest import FakeStep
 
@@ -299,5 +300,5 @@ def test_with_parsed_text_empty_json_raises() -> None:
 
     context = object()
     step = FakeStep(text="json\n")
-    with pytest.raises(Exception):
+    with pytest.raises(ParseError):
         step_func(context, step)

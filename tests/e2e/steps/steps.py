@@ -142,7 +142,7 @@ def step_then_xml_ns_value(context):
 
 @then("dedup removes duplicate tags")
 def step_then_dedup_tags(context):
-    from behave_comments import extract_annotations, annotations_to_tags
+    from behave_comments import annotations_to_tags, extract_annotations
 
     anns = extract_annotations(context.feature.filename)
     feature_anns = [a for a in anns if a.scope == "feature"]
