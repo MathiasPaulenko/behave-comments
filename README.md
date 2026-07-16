@@ -120,6 +120,9 @@ tags = annotations_to_tags(annotations)
 ```python
 from behave_comments import (
     setup_lifecycle_hooks,
+    setup_lifecycle_hooks_from_path,
+    run_before_all,
+    run_after_all,
     run_before_feature,
     run_after_feature,
     run_before_scenario,
@@ -127,6 +130,13 @@ from behave_comments import (
     run_before_step,
     run_after_step,
 )
+
+def before_all(context):
+    setup_lifecycle_hooks_from_path(context, "features/")
+    run_before_all(context)
+
+def after_all(context):
+    run_after_all(context)
 
 def before_feature(context, feature):
     setup_lifecycle_hooks(context, feature)
@@ -140,6 +150,12 @@ def before_scenario(context, scenario):
 
 def after_scenario(context, scenario):
     run_after_scenario(context, scenario)
+
+def before_step(context, step):
+    run_before_step(context, step)
+
+def after_step(context, step):
+    run_after_step(context, step)
 ```
 
 ## API Reference
@@ -163,7 +179,7 @@ def after_scenario(context, scenario):
 ```bash
 pip install -e ".[dev]"
 pytest
-ruff check behave_comments/
+ruff check behave_comments tests
 mypy behave_comments/
 ```
 
