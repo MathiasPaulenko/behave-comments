@@ -168,3 +168,136 @@ def test_with_parsed_text_context_only() -> None:
     result = step_func(step)
     assert result is not None
     assert result.parsed == {"k": "v"}
+
+
+# ---------------------------------------------------------------------------
+# Edge cases: all content types through decorator
+# ---------------------------------------------------------------------------
+
+
+def test_with_parsed_text_xml() -> None:
+    @with_parsed_text()
+    def step_func(context: Any, text_block: TextBlock | None = None) -> TextBlock:
+        return text_block
+
+    context = object()
+    step = FakeStep(text="xml\n<root><child>text</child></root>")
+    result = step_func(context, step)
+    assert result is not None
+    assert result.content_type == "xml"
+    assert result.parsed.tag == "root"
+
+
+def test_with_parsed_text_csv() -> None:
+    @with_parsed_text()
+    def step_func(context: Any, text_block: TextBlock | None = None) -> TextBlock:
+        return text_block
+
+    context = object()
+    step = FakeStep(text="csv\nname,age\nAlice,30")
+    result = step_func(context, step)
+    assert result is not None
+    assert result.content_type == "csv"
+    assert result.parsed == [{"name": "Alice", "age": "30"}]
+
+
+def test_with_parsed_text_graphql() -> None:
+    @with_parsed_text()
+    def step_func(context: Any, text_block: TextBlock | None = None) -> TextBlock:
+        return text_block
+
+    context = object()
+    step = FakeStep(text="graphql\nquery { user { name } }")
+    result = step_func(context, step)
+    assert result is not None
+    assert result.content_type == "graphql"
+    assert result.parsed == "query { user { name } }"
+
+
+def test_with_parsed_text_form_urlencoded() -> None:
+    @with_parsed_text()
+    def step_func(context: Any, text_block: TextBlock | None = None) -> TextBlock:
+        return text_block
+
+    context = object()
+    step = FakeStep(text="form-urlencoded\nkey=value&other=2")
+    result = step_func(context, step)
+    assert result is not None
+    assert result.content_type == "form-urlencoded"
+    assert result.parsed == {"key": ["value"], "other": ["2"]}
+
+
+def test_with_parsed_text_step_without_name_attr() -> None:
+    @with_parsed_text()
+    def step_func(context: Any, text_block: TextBlock | None = None) -> TextBlock:
+        return text_block
+
+    context = object()
+
+    class StepNoName:
+        text = 'json\n{"k": "v"}'
+
+    result = step_func(context, StepNoName())
+    assert result is not None
+    assert result.parsed == {"k": "v"}
+
+
+def test_with_parsed_text_no_text_block_error_message_contains_step_name() -> None:
+    @with_parsed_text()
+    def step_func(context: Any, text_block: TextBlock | None = None) -> TextBlock:
+        return text_block
+
+    context = object()
+    step = FakeStep(text=None, name="my step")
+    with pytest.raises(ValueError, match="my step"):
+        step_func(context, step)
+
+
+def test_with_parsed_text_preserves_other_kwargs() -> None:
+    @with_parsed_text()
+    def step_func(
+        context: Any,
+        other: str = "",
+        text_block: TextBlock | None = None,
+    ) -> tuple[str, TextBlock | None]:
+        return other, text_block
+
+    context = object()
+    step = FakeStep(text='json\n{"k": "v"}')
+    other, tb = step_func(context, step, other="hello")
+    assert other == "hello"
+    assert tb is not None
+    assert tb.parsed == {"k": "v"}
+
+
+def test_with_parsed_text_returns_function_result() -> None:
+    @with_parsed_text()
+    def step_func(context: Any, text_block: TextBlock | None = None) -> int:
+        return 42
+
+    context = object()
+    step = FakeStep(text='json\n{"k": "v"}')
+    assert step_func(context, step) == 42
+
+
+def test_with_parsed_text_multiline_text() -> None:
+    @with_parsed_text()
+    def step_func(context: Any, text_block: TextBlock | None = None) -> TextBlock:
+        return text_block
+
+    context = object()
+    step = FakeStep(text='json\n{\n  "key": "value",\n  "num": 42\n}')
+    result = step_func(context, step)
+    assert result is not None
+    assert result.parsed == {"key": "value", "num": 42}
+
+
+def test_with_parsed_text_empty_json_raises() -> None:
+    @with_parsed_text()
+    def step_func(context: Any, text_block: TextBlock | None = None) -> TextBlock:
+        return text_block
+
+    context = object()
+    step = FakeStep(text="json\n")
+    with pytest.raises(Exception):
+        step_func(context, step)

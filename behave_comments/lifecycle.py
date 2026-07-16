@@ -5,25 +5,16 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from behave_comments.errors import LifecycleStepError
 
-_LIFECYCLE_HOOK_RE = re.compile(
-    r"^#\s*@(?P<hook>before|after)-(?P<scope>feature|scenario|step|all)\s*:\s*(?P<step>.+)$"
-)
+logger = logging.getLogger(__name__)
 
-VALID_HOOKS: frozenset[str] = frozenset(
-    {
-        "before-feature",
-        "before-scenario",
-        "before-step",
-        "before-all",
-        "after-feature",
-        "after-scenario",
-        "after-step",
-        "after-all",
-    }
+_LIFECYCLE_HOOK_RE = re.compile(
+    r"^#\s*@(?P<hook>before|after)-(?P<scope>feature|scenario|step|all)\s*:\s*(?P<step>.+)$",
+    re.IGNORECASE,
 )
 
 
@@ -65,8 +56,8 @@ def parse_lifecycle_line(line: str, line_number: int) -> LifecycleHook | None:
     if match is None:
         return None
 
-    hook_prefix = match.group("hook")
-    scope = match.group("scope")
+    hook_prefix = match.group("hook").lower()
+    scope = match.group("scope").lower()
     step_text = match.group("step").strip()
 
     hook_type = f"{hook_prefix}-{scope}"
@@ -78,7 +69,7 @@ def parse_lifecycle_line(line: str, line_number: int) -> LifecycleHook | None:
     )
 
 
-def parse_lifecycle_hooks(feature_path: str) -> list[LifecycleHook]:
+def parse_lifecycle_hooks(feature_path: str | Path) -> list[LifecycleHook]:
     """Extract all lifecycle hook declarations from a .feature file.
 
     Args:
@@ -90,10 +81,8 @@ def parse_lifecycle_hooks(feature_path: str) -> list[LifecycleHook]:
     Raises:
         FileNotFoundError: If the file does not exist.
     """
-    from pathlib import Path
-
     path = Path(feature_path)
-    content = path.read_text(encoding="utf-8")
+    content = path.read_text(encoding="utf-8-sig")
 
     hooks: list[LifecycleHook] = []
     for line_number, line in enumerate(content.splitlines(), start=1):
@@ -102,9 +91,6 @@ def parse_lifecycle_hooks(feature_path: str) -> list[LifecycleHook]:
             hooks.append(hook)
 
     return hooks
-
-
-logger = logging.getLogger(__name__)
 
 
 _STEP_TYPE_RE = re.compile(r"^(?P<step_type>Given|When|Then|Step)\s+(?P<name>.+)$", re.IGNORECASE)
@@ -143,19 +129,16 @@ def _execute_step(
     if callable(execute_steps):
         try:
             execute_steps(step_text)
-        except AssertionError as e:
-            raise LifecycleStepError(
-                hook_type=hook_type,
-                step_text=step_text,
-                detail=str(e),
-            ) from e
+            return
         except Exception as e:
-            raise LifecycleStepError(
-                hook_type=hook_type,
-                step_text=step_text,
-                detail=str(e),
-            ) from e
-        return
+            if "outside of feature" in str(e).lower():
+                pass
+            else:
+                raise LifecycleStepError(
+                    hook_type=hook_type,
+                    step_text=step_text,
+                    detail=str(e),
+                ) from e
 
     try:
         from behave.step_registry import registry as behave_registry
@@ -213,10 +196,27 @@ def setup_lifecycle_hooks(
         feature: The Behave feature object (must have ``filename``).
     """
     filename = getattr(feature, "filename", None)
-    if filename is None:
+    if not filename:
         return
 
     hooks = parse_lifecycle_hooks(filename)
+    context._lifecycle_hooks = hooks
+
+
+def setup_lifecycle_hooks_from_path(
+    context: Any,
+    feature_path: str | Path,
+) -> None:
+    """Parse lifecycle hooks from a .feature file path and store in context.
+
+    Use this from ``before_all`` / ``after_all`` in ``environment.py``,
+    where the Behave ``feature`` object is not yet available.
+
+    Args:
+        context: Behave's context object.
+        feature_path: Path to the .feature file.
+    """
+    hooks = parse_lifecycle_hooks(feature_path)
     context._lifecycle_hooks = hooks
 
 
@@ -228,44 +228,166 @@ def _get_hooks(context: Any) -> list[LifecycleHook]:
 def _run_hooks(
     context: Any,
     hook_type: str,
+    *,
+    continue_on_error: bool = False,
 ) -> None:
     """Execute all lifecycle hooks of the given type.
 
     Args:
         context: Behave's context object.
         hook_type: The hook type to execute (e.g. "before-feature").
+        continue_on_error: If True, continue executing remaining hooks
+            when one fails. Errors are logged and a single combined
+            ``LifecycleStepError`` is raised after all hooks run.
+            If False (default), the first error stops execution.
     """
     hooks = _get_hooks(context)
+    errors: list[LifecycleStepError] = []
     for hook in hooks:
         if hook.hook_type == hook_type:
-            _execute_step(hook.step_text, context, hook_type=hook_type)
+            try:
+                _execute_step(hook.step_text, context, hook_type=hook_type)
+            except LifecycleStepError as e:
+                if not continue_on_error:
+                    raise
+                logger.error("Hook %s failed: %s", hook_type, e)
+                errors.append(e)
+    if errors:
+        details = "; ".join(str(e) for e in errors)
+        raise LifecycleStepError(
+            hook_type=hook_type,
+            step_text=f"{len(errors)} hook(s) failed",
+            detail=details,
+        )
 
 
-def run_before_feature(context: Any, feature: Any) -> None:
-    """Run before-feature lifecycle hooks. Call from ``before_feature``."""
-    _run_hooks(context, "before-feature")
+def run_before_feature(
+    context: Any,
+    feature: Any,
+    *,
+    continue_on_error: bool = False,
+) -> None:
+    """Run before-feature lifecycle hooks. Call from ``before_feature``.
+
+    Args:
+        context: Behave's context object.
+        feature: The Behave feature object.
+        continue_on_error: If True, continue executing remaining hooks
+            when one fails. Defaults to False.
+    """
+    _run_hooks(context, "before-feature", continue_on_error=continue_on_error)
 
 
-def run_after_feature(context: Any, feature: Any) -> None:
-    """Run after-feature lifecycle hooks. Call from ``after_feature``."""
-    _run_hooks(context, "after-feature")
+def run_after_feature(
+    context: Any,
+    feature: Any,
+    *,
+    continue_on_error: bool = False,
+) -> None:
+    """Run after-feature lifecycle hooks. Call from ``after_feature``.
+
+    Args:
+        context: Behave's context object.
+        feature: The Behave feature object.
+        continue_on_error: If True, continue executing remaining hooks
+            when one fails. Defaults to False.
+    """
+    _run_hooks(context, "after-feature", continue_on_error=continue_on_error)
 
 
-def run_before_scenario(context: Any, scenario: Any) -> None:
-    """Run before-scenario lifecycle hooks. Call from ``before_scenario``."""
-    _run_hooks(context, "before-scenario")
+def run_before_scenario(
+    context: Any,
+    scenario: Any,
+    *,
+    continue_on_error: bool = False,
+) -> None:
+    """Run before-scenario lifecycle hooks. Call from ``before_scenario``.
+
+    Args:
+        context: Behave's context object.
+        scenario: The Behave scenario object.
+        continue_on_error: If True, continue executing remaining hooks
+            when one fails. Defaults to False.
+    """
+    _run_hooks(context, "before-scenario", continue_on_error=continue_on_error)
 
 
-def run_after_scenario(context: Any, scenario: Any) -> None:
-    """Run after-scenario lifecycle hooks. Call from ``after_scenario``."""
-    _run_hooks(context, "after-scenario")
+def run_after_scenario(
+    context: Any,
+    scenario: Any,
+    *,
+    continue_on_error: bool = False,
+) -> None:
+    """Run after-scenario lifecycle hooks. Call from ``after_scenario``.
+
+    Args:
+        context: Behave's context object.
+        scenario: The Behave scenario object.
+        continue_on_error: If True, continue executing remaining hooks
+            when one fails. Defaults to False.
+    """
+    _run_hooks(context, "after-scenario", continue_on_error=continue_on_error)
 
 
-def run_before_step(context: Any, step: Any) -> None:
-    """Run before-step lifecycle hooks. Call from ``before_step``."""
-    _run_hooks(context, "before-step")
+def run_before_step(
+    context: Any,
+    step: Any,
+    *,
+    continue_on_error: bool = False,
+) -> None:
+    """Run before-step lifecycle hooks. Call from ``before_step``.
+
+    Args:
+        context: Behave's context object.
+        step: The Behave step object.
+        continue_on_error: If True, continue executing remaining hooks
+            when one fails. Defaults to False.
+    """
+    _run_hooks(context, "before-step", continue_on_error=continue_on_error)
 
 
-def run_after_step(context: Any, step: Any) -> None:
-    """Run after-step lifecycle hooks. Call from ``after_step``."""
-    _run_hooks(context, "after-step")
+def run_after_step(
+    context: Any,
+    step: Any,
+    *,
+    continue_on_error: bool = False,
+) -> None:
+    """Run after-step lifecycle hooks. Call from ``after_step``.
+
+    Args:
+        context: Behave's context object.
+        step: The Behave step object.
+        continue_on_error: If True, continue executing remaining hooks
+            when one fails. Defaults to False.
+    """
+    _run_hooks(context, "after-step", continue_on_error=continue_on_error)
+
+
+def run_before_all(
+    context: Any,
+    *,
+    continue_on_error: bool = False,
+) -> None:
+    """Run before-all lifecycle hooks. Call from ``before_all``.
+
+    Args:
+        context: Behave's context object.
+        continue_on_error: If True, continue executing remaining hooks
+            when one fails. Defaults to False.
+    """
+    _run_hooks(context, "before-all", continue_on_error=continue_on_error)
+
+
+def run_after_all(
+    context: Any,
+    *,
+    continue_on_error: bool = False,
+) -> None:
+    """Run after-all lifecycle hooks. Call from ``after_all``.
+
+    Args:
+        context: Behave's context object.
+        continue_on_error: If True, continue executing remaining hooks
+            when one fails. Defaults to False.
+    """
+    _run_hooks(context, "after-all", continue_on_error=continue_on_error)

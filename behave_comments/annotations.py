@@ -10,7 +10,13 @@ from behave_comments.errors import AnnotationParseError
 from behave_comments.models import Annotation
 
 _ANNOTATION_RE = re.compile(
-    r"^#\s*@(?P<key>[\w-]+)\s*[:=]?\s*(?P<value>.*)$"
+    r"^#\s*@(?P<key>[\w-]+)[.:=]{0,2}\s*(?P<value>.*)$"
+)
+
+
+_LIFECYCLE_PREFIX_RE = re.compile(
+    r"^#\s*@(?P<hook>before|after)-(?P<scope>feature|scenario|step|all)\s*:",
+    re.IGNORECASE,
 )
 
 
@@ -21,6 +27,9 @@ def parse_annotation_line(line: str, line_number: int) -> Annotation | None:
         # @key value
         # @key: value
         # @key=value
+
+    Lines that look like lifecycle hooks (``# @before-*:`` or
+    ``# @after-*:``) are **not** annotations and return None.
 
     Args:
         line: The comment line to parse.
@@ -38,6 +47,9 @@ def parse_annotation_line(line: str, line_number: int) -> Annotation | None:
     if not stripped.startswith("#"):
         return None
 
+    if _LIFECYCLE_PREFIX_RE.match(stripped):
+        return None
+
     match = _ANNOTATION_RE.match(stripped)
     if match is None:
         if stripped.startswith("# @"):
@@ -47,9 +59,6 @@ def parse_annotation_line(line: str, line_number: int) -> Annotation | None:
     key = match.group("key")
     value = match.group("value").strip()
 
-    if not key:
-        raise AnnotationParseError(line=line_number, raw=stripped)
-
     return Annotation(
         key=key,
         value=value,
@@ -57,21 +66,6 @@ def parse_annotation_line(line: str, line_number: int) -> Annotation | None:
         scope="",
         scope_name="",
     )
-
-
-_GHERKIN_KEYWORDS = {
-    "Feature:",
-    "Background:",
-    "Scenario:",
-    "Scenario Outline:",
-    "Examples:",
-    "Given",
-    "When",
-    "Then",
-    "And",
-    "But",
-    "Rule:",
-}
 
 
 def extract_annotations(feature_path: str | Path) -> list[Annotation]:
@@ -91,7 +85,7 @@ def extract_annotations(feature_path: str | Path) -> list[Annotation]:
         AnnotationParseError: If a malformed annotation is found.
     """
     path = Path(feature_path)
-    content = path.read_text(encoding="utf-8")
+    content = path.read_text(encoding="utf-8-sig")
 
     annotations: list[Annotation] = []
     current_scope = "feature"
@@ -109,30 +103,34 @@ def extract_annotations(feature_path: str | Path) -> list[Annotation]:
         if not stripped or stripped.startswith("#"):
             continue
 
-        first_word = stripped.split(None, 1)[0]
-        if first_word == "Feature:":
+        if stripped.startswith("Feature:"):
             current_scope = "feature"
             current_scope_name = stripped.removeprefix("Feature:").strip()
-        elif first_word == "Background:":
+        elif stripped.startswith("Background:"):
             current_scope = "background"
             current_scope_name = "Background"
-        elif stripped.startswith("Scenario Outline:"):
+        elif stripped.startswith("Scenario Outline:") or stripped.startswith("Scenario Template:"):
             current_scope = "scenario"
-            current_scope_name = stripped.removeprefix("Scenario Outline:").strip()
-        elif first_word == "Scenario:":
+            if stripped.startswith("Scenario Outline:"):
+                current_scope_name = stripped.removeprefix("Scenario Outline:").strip()
+            else:
+                current_scope_name = stripped.removeprefix("Scenario Template:").strip()
+        elif stripped.startswith("Scenario:"):
             current_scope = "scenario"
             current_scope_name = stripped.removeprefix("Scenario:").strip()
-        elif first_word == "Rule:":
+        elif stripped.startswith("Rule:"):
             current_scope = "rule"
             current_scope_name = stripped.removeprefix("Rule:").strip()
-        elif first_word == "Examples:":
+        elif stripped.startswith("Examples:"):
             current_scope = "examples"
             current_scope_name = "Examples"
-        elif first_word in ("Given", "When", "Then", "And", "But"):
-            current_scope = "step"
-            current_scope_name = stripped
         else:
-            continue
+            first_word = stripped.split(None, 1)[0]
+            if first_word in ("Given", "When", "Then", "And", "But", "*"):
+                current_scope = "step"
+                current_scope_name = stripped
+            else:
+                continue
 
         for p in pending:
             annotations.append(
@@ -160,26 +158,47 @@ def extract_annotations(feature_path: str | Path) -> list[Annotation]:
     return annotations
 
 
-def annotations_to_tags(annotations: list[Annotation]) -> list[str]:
+_TAG_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9-]+")
+_TAG_COLLAPSE_RE = re.compile(r"-{2,}")
+
+
+def annotations_to_tags(
+    annotations: list[Annotation],
+    *,
+    dedup: bool = False,
+) -> list[str]:
     """Convert annotations to Behave-compatible tag strings.
 
     Tags are formatted as ``@key-value`` (hyphen-separated) or ``@key``
-    if the value is empty. Special characters in values are replaced
-    with hyphens.
+    if the value is empty. All non-alphanumeric characters in keys and
+    values (except hyphens) are replaced with hyphens.
 
     Args:
         annotations: A list of Annotation objects.
+        dedup: If True, remove duplicate tags while preserving order.
 
     Returns:
         A list of tag strings (with ``@`` prefix).
     """
     tags: list[str] = []
+    seen: set[str] = set()
     for ann in annotations:
-        if ann.value:
-            sanitized = ann.value.replace(" ", "-").replace(":", "-").replace("/", "-")
-            tags.append(f"@{ann.key}-{sanitized}")
+        sanitized_key = _TAG_SANITIZE_RE.sub("-", ann.key)
+        sanitized_key = _TAG_COLLAPSE_RE.sub("-", sanitized_key).strip("-")
+        if not sanitized_key:
+            continue
+        if ann.value.strip():
+            sanitized = _TAG_SANITIZE_RE.sub("-", ann.value)
+            sanitized = _TAG_COLLAPSE_RE.sub("-", sanitized).strip("-")
+            tag = f"@{sanitized_key}-{sanitized}" if sanitized else f"@{sanitized_key}"
         else:
-            tags.append(f"@{ann.key}")
+            tag = f"@{sanitized_key}"
+        if dedup:
+            if tag not in seen:
+                seen.add(tag)
+                tags.append(tag)
+        else:
+            tags.append(tag)
     return tags
 
 
@@ -201,7 +220,7 @@ def inject_metadata(
             Defaults to ``"metadata"``.
     """
     filename = getattr(feature, "filename", None)
-    if filename is None:
+    if not filename:
         return
 
     annotations = extract_annotations(filename)

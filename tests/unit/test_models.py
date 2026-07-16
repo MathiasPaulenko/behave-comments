@@ -90,3 +90,93 @@ def test_annotation_repr() -> None:
     assert "line=5" in r
     assert "scope='feature'" in r
     assert "scope_name='Login'" in r
+
+
+# ---------------------------------------------------------------------------
+# Edge cases: model equality, hashability, field variations
+# ---------------------------------------------------------------------------
+
+
+def test_text_block_hash() -> None:
+    a = TextBlock(content="x", content_type="text/plain", line=1)
+    b = TextBlock(content="x", content_type="text/plain", line=1)
+    assert hash(a) == hash(b)
+
+
+def test_annotation_hash() -> None:
+    a = Annotation(key="jira", value="TICKET-42", line=5, scope="feature", scope_name="Login")
+    b = Annotation(key="jira", value="TICKET-42", line=5, scope="feature", scope_name="Login")
+    assert hash(a) == hash(b)
+
+
+def test_text_block_different_content_type_ne() -> None:
+    a = TextBlock(content="x", content_type="text/plain", line=1)
+    b = TextBlock(content="x", content_type="json", line=1)
+    assert a != b
+
+
+def test_text_block_different_line_ne() -> None:
+    a = TextBlock(content="x", content_type="text/plain", line=1)
+    b = TextBlock(content="x", content_type="text/plain", line=2)
+    assert a != b
+
+
+def test_text_block_different_parsed_ne() -> None:
+    a = TextBlock(content="x", content_type="json", line=1, parsed={"a": 1})
+    b = TextBlock(content="x", content_type="json", line=1, parsed={"a": 2})
+    assert a != b
+
+
+def test_annotation_different_key_ne() -> None:
+    a = Annotation(key="jira", value="TICKET-42", line=5, scope="feature", scope_name="Login")
+    b = Annotation(key="owner", value="TICKET-42", line=5, scope="feature", scope_name="Login")
+    assert a != b
+
+
+def test_annotation_different_scope_ne() -> None:
+    a = Annotation(key="jira", value="TICKET-42", line=5, scope="feature", scope_name="Login")
+    b = Annotation(key="jira", value="TICKET-42", line=5, scope="scenario", scope_name="Login")
+    assert a != b
+
+
+def test_annotation_empty_value() -> None:
+    ann = Annotation(key="smoke", value="", line=1, scope="", scope_name="")
+    assert ann.value == ""
+    assert ann.key == "smoke"
+
+
+def test_annotation_empty_scope() -> None:
+    ann = Annotation(key="jira", value="TICKET-42", line=1, scope="", scope_name="")
+    assert ann.scope == ""
+    assert ann.scope_name == ""
+
+
+def test_text_block_with_complex_parsed() -> None:
+    data = {"nested": {"list": [1, 2, 3], "str": "hello"}}
+    tb = TextBlock(content="x", content_type="json", line=1, parsed=data)
+    assert tb.parsed == data
+
+
+def test_text_block_with_list_parsed() -> None:
+    tb = TextBlock(content="x", content_type="json", line=1, parsed=[1, 2, 3])
+    assert tb.parsed == [1, 2, 3]
+
+
+def test_text_block_with_none_parsed_explicit() -> None:
+    tb = TextBlock(content="x", content_type="text/plain", line=1, parsed=None)
+    assert tb.parsed is None
+
+
+def test_annotation_repr_with_empty_values() -> None:
+    ann = Annotation(key="smoke", value="", line=1, scope="", scope_name="")
+    r = repr(ann)
+    assert "Annotation" in r
+    assert "key='smoke'" in r
+    assert "value=''" in r
+
+
+def test_text_block_repr_with_parsed() -> None:
+    tb = TextBlock(content="x", content_type="json", line=1, parsed={"k": "v"})
+    r = repr(tb)
+    assert "TextBlock" in r
+    assert "parsed={'k': 'v'}" in r

@@ -79,10 +79,9 @@ def after_scenario(context, scenario):
 
 ```bash
 pip install behave-comments
-
-# Optional: YAML support
-pip install behave-comments[yaml]
 ```
+
+YAML support is included — `pyyaml` is a required dependency.
 
 ## Usage
 
@@ -150,7 +149,6 @@ def after_scenario(context, scenario):
 - `BehaveCommentsError` — Base exception
 - `ContentTypeError` — Unsupported content type
 - `ParseError` — Parsing failed
-- `MissingDependencyError` — Optional dependency missing (e.g. pyyaml)
 - `AnnotationParseError` — Invalid annotation syntax
 - `LifecycleStepError` — Lifecycle step execution failed
 

@@ -15,13 +15,12 @@ def test_all_exports_importable() -> None:
 
 
 def test_all_exports_count() -> None:
-    assert len(behave_comments.__all__) == 24
+    assert len(behave_comments.__all__) == 26
 
 
 def test_errors_hierarchy() -> None:
     assert issubclass(behave_comments.ContentTypeError, behave_comments.BehaveCommentsError)
     assert issubclass(behave_comments.ParseError, behave_comments.BehaveCommentsError)
-    assert issubclass(behave_comments.MissingDependencyError, behave_comments.BehaveCommentsError)
     assert issubclass(behave_comments.AnnotationParseError, behave_comments.BehaveCommentsError)
     assert issubclass(behave_comments.LifecycleStepError, behave_comments.BehaveCommentsError)
 
@@ -54,6 +53,9 @@ def test_functions_are_callable() -> None:
         behave_comments.run_after_scenario,
         behave_comments.run_before_step,
         behave_comments.run_after_step,
+        behave_comments.run_before_all,
+        behave_comments.run_after_all,
+        behave_comments.setup_lifecycle_hooks_from_path,
     ]
     for func in callables:
         assert callable(func), f"Not callable: {func.__name__}"

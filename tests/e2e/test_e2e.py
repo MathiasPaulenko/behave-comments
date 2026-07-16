@@ -46,3 +46,8 @@ def test_annotations_e2e():
 def test_lifecycle_e2e():
     result = run_behave_e2e("lifecycle.feature")
     assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+
+
+def test_edge_cases_e2e():
+    result = run_behave_e2e("edge_cases.feature")
+    assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"

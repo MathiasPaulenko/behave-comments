@@ -26,18 +26,6 @@ class ParseError(BehaveCommentsError):
         super().__init__(f"Failed to parse {content_type!r} content{location}: {detail}")
 
 
-class MissingDependencyError(BehaveCommentsError):
-    """Raised when an optional dependency is not installed."""
-
-    def __init__(self, dependency: str, extra: str) -> None:
-        self.dependency = dependency
-        self.extra = extra
-        super().__init__(
-            f"Missing dependency: {dependency!r}. "
-            f"Install it with: pip install behave-comments[{extra}]"
-        )
-
-
 class AnnotationParseError(BehaveCommentsError):
     """Raised when parsing an annotation from a comment fails."""
 

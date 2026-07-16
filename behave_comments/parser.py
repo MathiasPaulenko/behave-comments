@@ -11,7 +11,9 @@ import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from typing import Any
 
-from behave_comments.errors import ContentTypeError, MissingDependencyError, ParseError
+import yaml
+
+from behave_comments.errors import ContentTypeError, ParseError
 from behave_comments.models import TextBlock
 
 SUPPORTED_CONTENT_TYPES: frozenset[str] = frozenset(
@@ -103,7 +105,7 @@ def _parse_csv(text: str) -> list[dict[str, str]]:
     """
     try:
         reader = csv.DictReader(io.StringIO(text))
-        return [dict(row) for row in reader]
+        return [{k: v for k, v in row.items() if v is not None} for row in reader]
     except csv.Error as e:
         raise ParseError(
             content_type="csv",
@@ -157,22 +159,13 @@ def _parse_yaml(text: str) -> Any:
         Returns None for empty or whitespace-only input.
 
     Raises:
-        MissingDependencyError: If pyyaml is not installed.
         ParseError: If the YAML is invalid.
     """
-    try:
-        import yaml
-    except ImportError:
-        raise MissingDependencyError(
-            dependency="pyyaml",
-            extra="yaml",
-        ) from None
-
     try:
         return yaml.safe_load(text)
     except yaml.YAMLError as e:
         mark = getattr(e, "problem_mark", None)
-        line = mark.line if mark is not None else None
+        line = mark.line + 1 if mark is not None else None
         raise ParseError(
             content_type="yaml",
             detail=str(e),
@@ -205,8 +198,9 @@ def parse_text(text: str, content_type: str = "text/plain") -> Any:
     Raises:
         ContentTypeError: If the content type is not supported.
         ParseError: If parsing fails.
-        MissingDependencyError: If an optional dependency is missing.
     """
+    if content_type is None:
+        raise ContentTypeError("None")
     normalized = content_type.strip().lower()
     if normalized not in SUPPORTED_CONTENT_TYPES:
         raise ContentTypeError(content_type)
