@@ -6,7 +6,7 @@ import behave_comments
 
 
 def test_version() -> None:
-    assert behave_comments.__version__ == "0.1.0"
+    assert behave_comments.__version__ == "1.0.0"
 
 
 def test_all_exports_importable() -> None:
