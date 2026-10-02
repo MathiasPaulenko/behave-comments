@@ -1,6 +1,13 @@
 # behave-comments
 
+[![PyPI version](https://img.shields.io/pypi/v/behave-comments)](https://pypi.org/project/behave-comments/)
+[![Python versions](https://img.shields.io/pypi/pyversions/behave-comments)](https://pypi.org/project/behave-comments/)
+[![CI](https://github.com/MathiasPaulenko/behave-comments/actions/workflows/ci.yml/badge.svg)](https://github.com/MathiasPaulenko/behave-comments/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/MathiasPaulenko/behave-comments)](LICENSE)
+
 Parse doc strings, extract metadata from comments, and declare lifecycle hooks in Behave `.feature` files.
+
+Requires Python 3.11+ and behave 1.2.6–1.3.x.
 
 ## Features
 
@@ -16,6 +23,7 @@ Given a JSON document
 ```
 
 ```python
+from behave import given
 from behave_comments import with_parsed_text
 
 @given("a JSON document")
@@ -43,6 +51,11 @@ Feature: Login
   Scenario: Successful login
     Given the user is on the login page
 ```
+
+Annotations attach to the Gherkin element that follows them (`feature`,
+`scenario`, `background`, `rule`, `examples`, or `step` scope). Comments inside
+doc strings are ignored, and localized feature files (`# language: xx`) are
+supported.
 
 ```python
 from behave_comments import inject_metadata
@@ -166,6 +179,21 @@ def after_step(context, step):
 
 ## API Reference
 
+### Functions
+
+- `extract_text_block(source)` — Extract and parse a step's doc string (accepts a step object or `context`)
+- `parse_text(text, content_type)` — Parse a text block by content type
+- `detect_content_type(opening_line)` — Detect the content type from a doc string opening line
+- `with_parsed_text(param_name)` — Decorator injecting a `TextBlock` into a step
+- `extract_annotations(feature_path)` — Extract annotations from a .feature file
+- `parse_annotation_line(line, line_number)` — Parse a single comment line as an annotation
+- `annotations_to_tags(annotations, dedup=False)` — Convert annotations to `@key-value` tag strings
+- `inject_metadata(context, feature, prefix="metadata")` — Inject annotations into `context`
+- `parse_lifecycle_line(line, line_number)` — Parse a single comment line as a hook declaration
+- `parse_lifecycle_hooks(feature_path)` — Extract all hook declarations from a .feature file
+- `setup_lifecycle_hooks(context, feature)` / `setup_lifecycle_hooks_from_path(context, path)` — Load hooks into context
+- `run_before_all/after_all/before_feature/after_feature/before_scenario/after_scenario/before_step/after_step` — Execute stored hooks
+
 ### Errors
 
 - `BehaveCommentsError` — Base exception
@@ -178,7 +206,7 @@ def after_step(context, step):
 
 - `TextBlock(content, content_type, line, parsed)` — Parsed doc string
 - `Annotation(key, value, line, scope, scope_name)` — Extracted annotation
-- `LifecycleHook(hook_type, step_text, line)` — Lifecycle hook declaration
+- `LifecycleHook(hook_type, step_text, line, filename)` — Lifecycle hook declaration
 
 ## Development
 
