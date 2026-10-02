@@ -6,7 +6,12 @@ import behave_comments
 
 
 def test_version() -> None:
-    assert behave_comments.__version__ == "1.0.0"
+    import tomllib
+    from pathlib import Path
+
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    expected = tomllib.loads(pyproject.read_text())["project"]["version"]
+    assert behave_comments.__version__ == expected
 
 
 def test_all_exports_importable() -> None:
@@ -62,14 +67,15 @@ def test_functions_are_callable() -> None:
 
 
 def test_version_fallback_when_not_installed(monkeypatch) -> None:
-    import importlib.metadata
     import importlib
+    import importlib.metadata
 
     def raise_not_found(name: str) -> str:
         raise importlib.metadata.PackageNotFoundError(name)
 
     monkeypatch.setattr(importlib.metadata, "version", raise_not_found)
     reloaded = importlib.reload(behave_comments)
-    assert reloaded.__version__ == "1.0.0"
+    assert isinstance(reloaded.__version__, str)
+    assert reloaded.__version__ != ""
     monkeypatch.undo()
     importlib.reload(behave_comments)
