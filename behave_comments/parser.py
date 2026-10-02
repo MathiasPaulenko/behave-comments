@@ -9,6 +9,7 @@ import re
 import urllib.parse
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -28,14 +29,15 @@ SUPPORTED_CONTENT_TYPES: frozenset[str] = frozenset(
     }
 )
 
-_TRIPLE_QUOTE_RE = re.compile(r'^"""(\s*(\S+)?\s*)?$')
+_TRIPLE_QUOTE_RE = re.compile(r'^(?:"""|\'\'\')(\s*(\S+)?\s*)?$')
 
 
 def detect_content_type(opening_line: str) -> str:
     """Detect the content type from a triple-quote opening line.
 
     Args:
-        opening_line: The line that opens a doc string, e.g. ``\"\"\"json``.
+        opening_line: The line that opens a doc string, e.g. ``\"\"\"json``
+            or ``'''yaml``.
 
     Returns:
         The normalized content type string (lowercase).
@@ -105,7 +107,7 @@ def _parse_csv(text: str) -> list[dict[str, str]]:
     """
     try:
         reader = csv.DictReader(io.StringIO(text))
-        return [{k: v for k, v in row.items() if v is not None} for row in reader]
+        return [{k: v for k, v in row.items() if k is not None and v is not None} for row in reader]
     except csv.Error as e:
         raise ParseError(
             content_type="csv",
@@ -209,34 +211,98 @@ def parse_text(text: str, content_type: str = "text/plain") -> Any:
     return parser(text)
 
 
-def extract_text_block(step: Any) -> TextBlock | None:
-    """Extract and parse a text block from a Behave step.
+_DOCSTRING_OPEN_RE = re.compile(r'^(?:"""|\'\'\')\s*(\S*)\s*$')
 
-    Behave strips the opening ``\"\"\"json`` line from doc strings.
-    The content type, if present, is embedded as the first line of
-    ``step.text``. This function detects it, extracts the content,
-    and parses it.
+
+def _declared_content_type(source: Any, text: Any) -> str | None:
+    """Return the content type declared for a doc string, if any.
+
+    Behave discards the media type written on the doc string opening line
+    (``\"\"\"json``) and always stores ``text/plain``. This function recovers
+    it from ``text.content_type`` (future Behave versions) or by reading the
+    opening line of the doc string back from the feature file.
 
     Args:
-        step: A Behave step object with a ``text`` attribute.
+        source: A Behave step or context object.
+        text: The doc string text (may be a ``behave.model.Text``).
+
+    Returns:
+        The declared content type, or None if none was declared.
+
+    Raises:
+        ContentTypeError: If a media type was declared but is not supported.
+    """
+    declared = getattr(text, "content_type", None)
+    if declared:
+        normalized = str(declared).strip().lower()
+        if normalized != "text/plain":
+            if normalized not in SUPPORTED_CONTENT_TYPES:
+                raise ContentTypeError(normalized)
+            return normalized
+
+    line_no = getattr(text, "line", None)
+    if not line_no:
+        return None
+
+    filename = getattr(source, "filename", None)
+    if filename is None:
+        feature = getattr(source, "feature", None)
+        filename = getattr(feature, "filename", None)
+    if not filename:
+        return None
+
+    try:
+        opening = Path(filename).read_text(encoding="utf-8-sig").splitlines()[line_no - 1].strip()
+    except (OSError, IndexError):
+        return None
+
+    match = _DOCSTRING_OPEN_RE.match(opening)
+    if match is None or not match.group(1):
+        return None
+
+    content_type = match.group(1).lower()
+    if content_type not in SUPPORTED_CONTENT_TYPES:
+        raise ContentTypeError(content_type)
+    return content_type
+
+
+def extract_text_block(step: Any) -> TextBlock | None:
+    """Extract and parse a text block from a Behave step or context.
+
+    The content type is resolved in this order:
+
+    1. Declared on the doc string opening line (``\"\"\"json``), recovered
+       from the feature file since Behave discards it.
+    2. As the first line inside the doc string body.
+    3. ``text/plain`` as fallback.
+
+    Args:
+        step: A Behave step object, or the Behave ``context`` during a step
+            (``context.text`` holds the doc string).
 
     Returns:
         A TextBlock with the parsed content, or None if the step
         has no text block.
+
+    Raises:
+        ContentTypeError: If a declared content type is not supported.
+        ParseError: If parsing fails.
     """
     text = getattr(step, "text", None)
     if not text:
         return None
 
-    lines = text.split("\n", 1)
-    first_line = lines[0].strip().lower()
+    content_type = _declared_content_type(step, text)
+    content = str(text)
 
-    if len(lines) > 1 and first_line in SUPPORTED_CONTENT_TYPES:
-        content_type = first_line
-        content = lines[1]
-    else:
-        content_type = "text/plain"
-        content = text
+    if content_type is None:
+        lines = content.split("\n", 1)
+        first_line = lines[0].strip().lower()
+        if len(lines) > 1 and first_line in SUPPORTED_CONTENT_TYPES:
+            content_type = first_line
+            content = lines[1]
+        else:
+            content_type = "text/plain"
 
     parsed = parse_text(content, content_type)
     line = getattr(step, "line", 0)

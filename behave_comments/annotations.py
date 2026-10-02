@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,108 @@ _LIFECYCLE_PREFIX_RE = re.compile(
     r"^#\s*@(?P<hook>before|after)-(?P<scope>feature|scenario|step|all)\s*:",
     re.IGNORECASE,
 )
+
+_LANGUAGE_RE = re.compile(r"^#\s*language\s*:\s*(?P<lang>[\w-]+)")
+
+_DOCSTRING_DELIMITERS = ('"""', "'''")
+
+# Fallback English keywords (same values as behave.i18n.languages["en"]).
+_EN_KEYWORDS: dict[str, list[str]] = {
+    "feature": ["Feature", "Business Need", "Ability"],
+    "rule": ["Rule"],
+    "background": ["Background"],
+    "scenario": ["Example", "Scenario"],
+    "scenario_outline": ["Scenario Outline", "Scenario Template"],
+    "examples": ["Examples", "Scenarios"],
+    "given": ["* ", "Given "],
+    "when": ["* ", "When "],
+    "then": ["* ", "Then "],
+    "and": ["* ", "And "],
+    "but": ["* ", "But "],
+}
+
+
+def _iter_code_lines(content: str) -> Iterator[tuple[int, str]]:
+    """Yield ``(line_number, line)`` pairs, skipping doc string bodies.
+
+    Doc strings (``\"\"\"`` or ``'''`` blocks) may contain text that looks
+    like comments, annotations or Gherkin keywords; they must not be
+    interpreted as such.
+    """
+    delimiter = ""
+    for line_number, line in enumerate(content.splitlines(), start=1):
+        stripped = line.strip()
+        if delimiter:
+            if stripped.startswith(delimiter):
+                delimiter = ""
+            continue
+        if stripped.startswith(_DOCSTRING_DELIMITERS):
+            # A one-line doc string like \"\"\"text\"\"\" does not open a block.
+            if not stripped[3:].endswith(stripped[:3]):
+                delimiter = stripped[:3]
+            continue
+        yield line_number, line
+
+
+def _detect_language(content: str) -> str:
+    """Return the Gherkin language code declared by ``# language: xx``."""
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        match = _LANGUAGE_RE.match(stripped)
+        return match.group("lang") if match else "en"
+    return "en"
+
+
+def _keyword_map(language: str) -> tuple[list[tuple[str, str]], list[str]]:
+    """Build (statement_keywords, step_keywords) for a Gherkin language.
+
+    Statement keywords map to scopes and are sorted longest-first so
+    ``Scenario Outline`` wins over ``Scenario``. Step keywords keep their
+    raw form (trailing space or ``*`` suffix as used by behave.i18n).
+    """
+    try:
+        from behave.i18n import languages
+
+        data = languages.get(language) or languages["en"]
+    except ImportError:
+        data = _EN_KEYWORDS
+
+    statements: list[tuple[str, str]] = []
+    for i18n_key, scope in (
+        ("scenario_outline", "scenario"),
+        ("scenario", "scenario"),
+        ("rule", "rule"),
+        ("background", "background"),
+        ("examples", "examples"),
+        ("feature", "feature"),
+    ):
+        for keyword in data.get(i18n_key) or []:
+            keyword = keyword.rstrip("* ")
+            if keyword:
+                statements.append((keyword, scope))
+    statements.sort(key=lambda item: len(item[0]), reverse=True)
+
+    step_keywords: list[str] = []
+    for i18n_key in ("given", "when", "then", "and", "but"):
+        for keyword in data.get(i18n_key) or []:
+            keyword = keyword.strip()
+            if keyword:
+                step_keywords.append(keyword)
+
+    return statements, step_keywords
+
+
+def _match_step_keyword(stripped: str, step_keywords: list[str]) -> bool:
+    """Return True if the line starts with a step keyword."""
+    for keyword in step_keywords:
+        if keyword == "*":
+            if stripped == "*" or stripped.startswith("* "):
+                return True
+        elif stripped == keyword or stripped.startswith(keyword + " "):
+            return True
+    return False
 
 
 def parse_annotation_line(line: str, line_number: int) -> Annotation | None:
@@ -85,12 +188,14 @@ def extract_annotations(feature_path: str | Path) -> list[Annotation]:
     path = Path(feature_path)
     content = path.read_text(encoding="utf-8-sig")
 
+    statements, step_keywords = _keyword_map(_detect_language(content))
+
     annotations: list[Annotation] = []
     current_scope = "feature"
     current_scope_name = ""
     pending: list[Annotation] = []
 
-    for line_number, line in enumerate(content.splitlines(), start=1):
+    for line_number, line in _iter_code_lines(content):
         stripped = line.strip()
 
         ann = parse_annotation_line(line, line_number)
@@ -101,30 +206,20 @@ def extract_annotations(feature_path: str | Path) -> list[Annotation]:
         if not stripped or stripped.startswith("#"):
             continue
 
-        if stripped.startswith("Feature:"):
-            current_scope = "feature"
-            current_scope_name = stripped.removeprefix("Feature:").strip()
-        elif stripped.startswith("Background:"):
-            current_scope = "background"
-            current_scope_name = "Background"
-        elif stripped.startswith("Scenario Outline:") or stripped.startswith("Scenario Template:"):
-            current_scope = "scenario"
-            if stripped.startswith("Scenario Outline:"):
-                current_scope_name = stripped.removeprefix("Scenario Outline:").strip()
-            else:
-                current_scope_name = stripped.removeprefix("Scenario Template:").strip()
-        elif stripped.startswith("Scenario:"):
-            current_scope = "scenario"
-            current_scope_name = stripped.removeprefix("Scenario:").strip()
-        elif stripped.startswith("Rule:"):
-            current_scope = "rule"
-            current_scope_name = stripped.removeprefix("Rule:").strip()
-        elif stripped.startswith("Examples:"):
-            current_scope = "examples"
-            current_scope_name = "Examples"
-        else:
-            first_word = stripped.split(None, 1)[0]
-            if first_word in ("Given", "When", "Then", "And", "But", "*"):
+        matched = False
+        for keyword, scope in statements:
+            if stripped.startswith(keyword + ":"):
+                current_scope = scope
+                # Background/Examples carry no meaningful name.
+                if scope in ("background", "examples"):
+                    current_scope_name = keyword
+                else:
+                    current_scope_name = stripped[len(keyword) + 1 :].strip()
+                matched = True
+                break
+
+        if not matched:
+            if _match_step_keyword(stripped, step_keywords):
                 current_scope = "step"
                 current_scope_name = stripped
             else:
@@ -223,7 +318,7 @@ def inject_metadata(
 
     annotations = extract_annotations(filename)
 
-    metadata: dict[str, list[dict[str, str]]] = {}
+    metadata: dict[str, list[dict[str, Any]]] = {}
     for ann in annotations:
         scope_key = ann.scope
         if scope_key not in metadata:
@@ -232,7 +327,7 @@ def inject_metadata(
             {
                 "key": ann.key,
                 "value": ann.value,
-                "line": str(ann.line),
+                "line": ann.line,
                 "scope_name": ann.scope_name,
             }
         )

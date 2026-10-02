@@ -408,7 +408,7 @@ def test_inject_metadata_basic(tmp_path) -> None:
     entry = context.metadata["feature"][0]
     assert entry["key"] == "jira"
     assert entry["value"] == "TICKET-1"
-    assert entry["line"] == "1"
+    assert entry["line"] == 1
     assert entry["scope_name"] == "Test"
 
 
@@ -477,13 +477,13 @@ def test_inject_metadata_entry_structure(tmp_path) -> None:
     assert set(entry.keys()) == {"key", "value", "line", "scope_name"}
 
 
-def test_inject_metadata_line_is_string(tmp_path) -> None:
+def test_inject_metadata_line_is_int(tmp_path) -> None:
     path = _write_feature(tmp_path, "# @jira TICKET-1\nFeature: Test\n")
     context = FakeContext()
     feature = FakeFeature(filename=str(path))
     inject_metadata(context, feature)
     entry = context.metadata["feature"][0]
-    assert isinstance(entry["line"], str)
+    assert isinstance(entry["line"], int)
 
 
 # ---------------------------------------------------------------------------
@@ -1063,3 +1063,117 @@ def test_extract_annotations_examples_no_space_after_colon(tmp_path) -> None:
     assert len(anns) == 1
     assert anns[0].scope == "examples"
     assert anns[0].scope_name == "Examples"
+
+
+def test_extract_annotations_ignores_docstring_content(tmp_path) -> None:
+    """Comments and keywords inside doc strings are not annotations."""
+    path = _write_feature(
+        tmp_path,
+        "Feature: Test\n"
+        "# @jira REAL-1\n"
+        "Scenario: S1\n"
+        "  Given a doc string\n"
+        '    """\n'
+        "    # @fake NOT-AN-ANNOTATION\n"
+        "    Given not a step\n"
+        '    """\n'
+        "# @id SC-1\n"
+        "  Then a real step\n",
+    )
+    anns = extract_annotations(path)
+    assert [(a.key, a.scope) for a in anns] == [("jira", "scenario"), ("id", "step")]
+
+
+def test_extract_annotations_ignores_single_quote_docstring(tmp_path) -> None:
+    """Triple-single-quote doc strings are also skipped."""
+    path = _write_feature(
+        tmp_path,
+        "Feature: Test\n"
+        "Scenario: S1\n"
+        "  Given a doc string\n"
+        "    '''\n"
+        "    # @fake true\n"
+        "    '''\n"
+        "  Then a step\n",
+    )
+    assert extract_annotations(path) == []
+
+
+def test_extract_annotations_localized_feature(tmp_path) -> None:
+    """# language: es switches keyword detection to Spanish."""
+    path = _write_feature(
+        tmp_path,
+        "# language: es\n"
+        "# @jira TICKET-1\n"
+        "Característica: Login\n"
+        "  # @id SC-1\n"
+        "  Escenario: Login ok\n"
+        "    Dado un usuario\n",
+    )
+    anns = extract_annotations(path)
+    assert anns[0].scope == "feature"
+    assert anns[0].scope_name == "Login"
+    assert anns[1].scope == "scenario"
+    assert anns[1].scope_name == "Login ok"
+
+
+def test_extract_annotations_example_alias(tmp_path) -> None:
+    """Example: is a Gherkin alias for Scenario:."""
+    path = _write_feature(
+        tmp_path,
+        "Feature: Test\n# @id SC-1\nExample: Named scenario\n  Given a step\n",
+    )
+    anns = extract_annotations(path)
+    assert anns[0].scope == "scenario"
+    assert anns[0].scope_name == "Named scenario"
+
+
+def test_extract_annotations_scenarios_alias(tmp_path) -> None:
+    """Scenarios: is a Gherkin alias for Examples:."""
+    path = _write_feature(
+        tmp_path,
+        "Feature: Test\nScenario Outline: SO\n  Given a step\n# @ex EX-1\nScenarios:\n  | k |\n",
+    )
+    anns = extract_annotations(path)
+    assert anns[0].scope == "examples"
+    assert anns[0].scope_name == "Scenarios"
+
+
+def test_extract_annotations_inline_docstring(tmp_path) -> None:
+    """A one-line doc string does not open a skip block."""
+    path = _write_feature(
+        tmp_path,
+        "Feature: Test\n"
+        "Scenario: S1\n"
+        "  Given a doc string\n"
+        '    """inline text"""\n'
+        "# @id SC-9\n"
+        "  Then a step\n",
+    )
+    anns = extract_annotations(path)
+    assert [(a.key, a.scope) for a in anns] == [("id", "step")]
+
+
+def test_keyword_map_fallback_without_behave_i18n(monkeypatch, tmp_path) -> None:
+    """English keyword fallback when behave.i18n is unavailable."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "behave.i18n", None)
+    path = _write_feature(
+        tmp_path,
+        "Feature: T\n# @id SC-1\nScenario: S1\n  Given x\n",
+    )
+    anns = extract_annotations(path)
+    assert anns[0].scope == "scenario"
+    assert anns[0].scope_name == "S1"
+
+
+def test_detect_language_skips_blank_lines(tmp_path) -> None:
+    """# language: after leading blank lines is still detected."""
+    path = _write_feature(
+        tmp_path,
+        "\n\n# language: es\nCaracterística: T\n# @id SC-1\nEscenario: S1\n  Dado x\n",
+    )
+    anns = extract_annotations(path)
+    assert anns[0].scope == "scenario"
+    assert anns[0].scope_name == "S1"

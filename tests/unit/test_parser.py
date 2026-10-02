@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import xml.etree.ElementTree as ET
+from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -22,7 +24,7 @@ from behave_comments.parser import (
     extract_text_block,
     parse_text,
 )
-from tests.conftest import FakeStep
+from tests.conftest import FakeFeature, FakeStep
 
 
 @pytest.mark.parametrize(
@@ -41,6 +43,9 @@ from tests.conftest import FakeStep
         ('"""JSON', "json"),
         ('"""YAML', "yaml"),
         ('"""json\n', "json"),
+        ("'''json", "json"),
+        ("'''yaml", "yaml"),
+        ("'''", "text/plain"),
     ],
 )
 def test_detect_content_type_valid(opening_line: str, expected: str) -> None:
@@ -1049,3 +1054,138 @@ def test_parse_yaml_null() -> None:
 def test_parse_yaml_boolean() -> None:
     assert parse_text("true", "yaml") is True
     assert parse_text("false", "yaml") is False
+
+
+# ---------------------------------------------------------------------------
+# Declared media type recovery (text.content_type / feature-file opening line)
+# ---------------------------------------------------------------------------
+
+
+class FakeText(str):
+    """str with behave.model.Text-like attributes."""
+
+    def __new__(cls, value: str, content_type: str = "text/plain", line: int = 0):
+        obj = str.__new__(cls, value)
+        obj.content_type = content_type
+        obj.line = line
+        return obj
+
+
+class _Ctx:
+    """Context-like object exposing .feature.filename."""
+
+    def __init__(self, filename: str | None = None, text: Any = None) -> None:
+        self.feature = FakeFeature(filename=filename)
+        self.text = text
+
+
+def _write_docstring_feature(tmp_path, opening: str) -> Path:
+    path = tmp_path / "doc.feature"
+    path.write_text(
+        f'Feature: T\n  Scenario: S\n    Given x\n      {opening}\n      body\n      """\n',
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_extract_text_block_content_type_attribute() -> None:
+    """A non-plain text.content_type attribute wins over everything."""
+    step = FakeStep(text='{"k": "v"}')
+    step.text = FakeText('{"k": "v"}', content_type="json")
+    block = extract_text_block(step)
+    assert block is not None
+    assert block.content_type == "json"
+    assert block.parsed == {"k": "v"}
+
+
+def test_extract_text_block_content_type_attribute_unsupported() -> None:
+    step = FakeStep(text="x = 1")
+    step.text = FakeText("x = 1", content_type="toml")
+    with pytest.raises(ContentTypeError):
+        extract_text_block(step)
+
+
+def test_extract_text_block_opening_line_media_type(tmp_path) -> None:
+    """\"\"\"json on the opening line is recovered from the feature file."""
+    path = _write_docstring_feature(tmp_path, '"""json')
+    step = FakeStep(text='{"k": "v"}', name="x")
+    step.text = FakeText('{"k": "v"}', line=4)
+    step.filename = str(path)
+    block = extract_text_block(step)
+    assert block is not None
+    assert block.content_type == "json"
+    assert block.parsed == {"k": "v"}
+
+
+def test_extract_text_block_opening_line_via_context_feature(tmp_path) -> None:
+    """Filename resolution falls back to source.feature.filename."""
+    path = _write_docstring_feature(tmp_path, '"""yaml')
+    ctx = _Ctx(filename=str(path))
+    ctx.text = FakeText("key: value", line=4)
+    block = extract_text_block(ctx)
+    assert block is not None
+    assert block.content_type == "yaml"
+    assert block.parsed == {"key": "value"}
+
+
+def test_extract_text_block_opening_line_single_quotes(tmp_path) -> None:
+    path = _write_docstring_feature(tmp_path, "'''graphql")
+    # file was written with \"\"\" closer; rewrite with matching quotes
+    path.write_text(
+        "Feature: T\n  Scenario: S\n    Given x\n      '''graphql\n      q { a }\n      '''\n",
+        encoding="utf-8",
+    )
+    step = FakeStep(text="q { a }")
+    step.text = FakeText("q { a }", line=4)
+    step.filename = str(path)
+    block = extract_text_block(step)
+    assert block is not None
+    assert block.content_type == "graphql"
+    assert block.parsed == "q { a }"
+
+
+def test_extract_text_block_opening_line_unsupported(tmp_path) -> None:
+    path = _write_docstring_feature(tmp_path, '"""toml')
+    step = FakeStep(text="x = 1")
+    step.text = FakeText("x = 1", line=4)
+    step.filename = str(path)
+    with pytest.raises(ContentTypeError):
+        extract_text_block(step)
+
+
+def test_extract_text_block_opening_line_no_suffix(tmp_path) -> None:
+    path = _write_docstring_feature(tmp_path, '"""')
+    step = FakeStep(text="plain body")
+    step.text = FakeText("plain body", line=4)
+    step.filename = str(path)
+    block = extract_text_block(step)
+    assert block is not None
+    assert block.content_type == "text/plain"
+
+
+def test_extract_text_block_no_filename(tmp_path) -> None:
+    """Line info without a resolvable filename falls back to heuristics."""
+    step = FakeStep(text="just text")
+    step.text = FakeText("just text", line=4)
+    block = extract_text_block(step)
+    assert block is not None
+    assert block.content_type == "text/plain"
+
+
+def test_extract_text_block_missing_file(tmp_path) -> None:
+    step = FakeStep(text="just text")
+    step.text = FakeText("just text", line=4)
+    step.filename = str(tmp_path / "nope.feature")
+    block = extract_text_block(step)
+    assert block is not None
+    assert block.content_type == "text/plain"
+
+
+def test_extract_text_block_line_out_of_range(tmp_path) -> None:
+    path = _write_docstring_feature(tmp_path, '"""json')
+    step = FakeStep(text="just text")
+    step.text = FakeText("just text", line=999)
+    step.filename = str(path)
+    block = extract_text_block(step)
+    assert block is not None
+    assert block.content_type == "text/plain"

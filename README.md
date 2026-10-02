@@ -26,6 +26,10 @@ def step_given_json(context, text_block):
 
 Supported content types: `json`, `yaml`, `xml`, `csv`, `form-urlencoded`, `graphql`, `text/plain`.
 
+The content type can be declared on the doc string opening line (`"""json`)
+or as the first line inside the doc string body — both are detected, since
+Behave itself discards the opening-line media type.
+
 ### Metadata Annotations
 
 Extract structured metadata from `# @key value` comments:
@@ -98,7 +102,7 @@ def step(context, text_block):
 
 # Option 2: Manual extraction
 def step(context):
-    text_block = extract_text_block(context.step)
+    text_block = extract_text_block(context)  # context.text holds the doc string
     data = text_block.parsed
 ```
 
@@ -132,6 +136,8 @@ from behave_comments import (
 )
 
 def before_all(context):
+    # Accepts a single .feature file or a directory (hooks are collected
+    # from every *.feature file inside it, recursively).
     setup_lifecycle_hooks_from_path(context, "features/")
     run_before_all(context)
 

@@ -1094,3 +1094,70 @@ def test_run_hooks_all_types_no_hooks(monkeypatch) -> None:
     run_after_step(context, FakeStep())
     run_before_all(context)
     run_after_all(context)
+
+
+def test_parse_lifecycle_hooks_ignores_docstring_content(tmp_path) -> None:
+    """Hook-like comments inside doc strings are not hooks."""
+    path = _write_feature(
+        tmp_path,
+        "# @before-feature: Given real\n"
+        "Feature: Test\n"
+        "Scenario: S1\n"
+        "  Given a doc string\n"
+        '    """\n'
+        "    # @before-scenario: Given fake\n"
+        '    """\n',
+    )
+    hooks = parse_lifecycle_hooks(path)
+    assert len(hooks) == 1
+    assert hooks[0].hook_type == "before-feature"
+    assert hooks[0].filename == str(path)
+
+
+def test_setup_lifecycle_hooks_from_path_directory(tmp_path) -> None:
+    """A directory path collects hooks from all .feature files."""
+    (tmp_path / "a.feature").write_text("# @before-all: Given a\nFeature: A\n", encoding="utf-8")
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "b.feature").write_text("# @after-all: Then b\nFeature: B\n", encoding="utf-8")
+    context = FakeContext()
+    setup_lifecycle_hooks_from_path(context, tmp_path)
+    assert {h.hook_type for h in context._lifecycle_hooks} == {
+        "before-all",
+        "after-all",
+    }
+    assert len(context._lifecycle_hooks_global) == 2
+
+
+def test_run_after_all_uses_global_hooks_across_features(monkeypatch, tmp_path) -> None:
+    """after-all hooks survive the per-feature overwrite of _lifecycle_hooks."""
+    calls = []
+
+    def step_after_all(context: Any) -> None:
+        calls.append("global")
+
+    _patch_registry(monkeypatch, FakeRegistry({"Then global": step_after_all}))
+
+    feature_a = tmp_path / "a.feature"
+    feature_a.write_text("# @after-all: Then global\nFeature: A\n", encoding="utf-8")
+
+    context = FakeContext()
+    setup_lifecycle_hooks(context, FakeFeature(filename=str(feature_a)))
+    # A second feature without hooks overwrites the per-feature store.
+    other = tmp_path / "b.feature"
+    other.write_text("Feature: B\n", encoding="utf-8")
+    setup_lifecycle_hooks(context, FakeFeature(filename=str(other)))
+    assert context._lifecycle_hooks == []
+
+    run_after_all(context)
+    assert calls == ["global"]
+
+
+def test_setup_lifecycle_hooks_global_dedup(monkeypatch, tmp_path) -> None:
+    """Hooks loaded twice (path + feature) are not duplicated globally."""
+    path = tmp_path / "a.feature"
+    path.write_text("# @before-all: Given x\nFeature: A\n", encoding="utf-8")
+    context = FakeContext()
+    setup_lifecycle_hooks_from_path(context, path)
+    setup_lifecycle_hooks(context, FakeFeature(filename=str(path)))
+    assert len(context._lifecycle_hooks_global) == 1

@@ -15,7 +15,7 @@ def test_all_exports_importable() -> None:
 
 
 def test_all_exports_count() -> None:
-    assert len(behave_comments.__all__) == 26
+    assert len(behave_comments.__all__) == 29
 
 
 def test_errors_hierarchy() -> None:
@@ -59,3 +59,17 @@ def test_functions_are_callable() -> None:
     ]
     for func in callables:
         assert callable(func), f"Not callable: {func.__name__}"
+
+
+def test_version_fallback_when_not_installed(monkeypatch) -> None:
+    import importlib.metadata
+    import importlib
+
+    def raise_not_found(name: str) -> str:
+        raise importlib.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(importlib.metadata, "version", raise_not_found)
+    reloaded = importlib.reload(behave_comments)
+    assert reloaded.__version__ == "1.0.0"
+    monkeypatch.undo()
+    importlib.reload(behave_comments)

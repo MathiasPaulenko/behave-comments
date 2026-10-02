@@ -13,8 +13,8 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - run: python -m pip install -e ".[dev]"
@@ -24,8 +24,8 @@ jobs:
   typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - run: python -m pip install -e ".[dev]"
@@ -37,15 +37,15 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install -e ".[dev]"
       - run: python -m pytest tests/ -v --cov=behave_comments --cov-report=xml --cov-fail-under=90
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         with:
           name: coverage
@@ -54,8 +54,8 @@ jobs:
   packaging:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - run: python -m pip install -e ".[dev]"

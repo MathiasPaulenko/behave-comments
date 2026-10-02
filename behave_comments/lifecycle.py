@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from behave_comments.annotations import _iter_code_lines
 from behave_comments.errors import LifecycleStepError
 
 logger = logging.getLogger(__name__)
@@ -26,11 +27,13 @@ class LifecycleHook:
         hook_type: The hook type (e.g. "before-feature").
         step_text: The step text to execute (e.g. "Given the database is clean").
         line: The line number in the feature file.
+        filename: The .feature file the hook was declared in, if known.
     """
 
     hook_type: str
     step_text: str
     line: int
+    filename: str = ""
 
 
 def parse_lifecycle_line(line: str, line_number: int) -> LifecycleHook | None:
@@ -85,10 +88,17 @@ def parse_lifecycle_hooks(feature_path: str | Path) -> list[LifecycleHook]:
     content = path.read_text(encoding="utf-8-sig")
 
     hooks: list[LifecycleHook] = []
-    for line_number, line in enumerate(content.splitlines(), start=1):
+    for line_number, line in _iter_code_lines(content):
         hook = parse_lifecycle_line(line, line_number)
         if hook is not None:
-            hooks.append(hook)
+            hooks.append(
+                LifecycleHook(
+                    hook_type=hook.hook_type,
+                    step_text=hook.step_text,
+                    line=hook.line,
+                    filename=str(path),
+                )
+            )
 
     return hooks
 
@@ -143,14 +153,11 @@ def _execute_step(
     try:
         from behave.step_registry import registry as behave_registry
     except ImportError:
-        try:
-            from behave.runner import registry as behave_registry
-        except ImportError:
-            raise LifecycleStepError(
-                hook_type=hook_type,
-                step_text=step_text,
-                detail="Could not import Behave's step registry",
-            ) from None
+        raise LifecycleStepError(
+            hook_type=hook_type,
+            step_text=step_text,
+            detail="Could not import Behave's step registry",
+        ) from None
 
     match_obj = _STEP_TYPE_RE.match(step_text)
     if match_obj is None:
@@ -201,28 +208,65 @@ def setup_lifecycle_hooks(
 
     hooks = parse_lifecycle_hooks(filename)
     context._lifecycle_hooks = hooks
+    _merge_global_hooks(context, hooks)
 
 
 def setup_lifecycle_hooks_from_path(
     context: Any,
     feature_path: str | Path,
 ) -> None:
-    """Parse lifecycle hooks from a .feature file path and store in context.
+    """Parse lifecycle hooks from a .feature file or directory.
 
     Use this from ``before_all`` / ``after_all`` in ``environment.py``,
-    where the Behave ``feature`` object is not yet available.
+    where the Behave ``feature`` object is not yet available. When given
+    a directory, hooks are collected from every ``*.feature`` file in it
+    (recursively), which is the only way ``before-all``/``after-all``
+    hooks can work across multiple features.
 
     Args:
         context: Behave's context object.
-        feature_path: Path to the .feature file.
+        feature_path: Path to a .feature file or a directory containing them.
+
+    Raises:
+        FileNotFoundError: If the path does not exist.
     """
-    hooks = parse_lifecycle_hooks(feature_path)
+    path = Path(feature_path)
+    if path.is_dir():
+        hooks = [
+            hook for file in sorted(path.rglob("*.feature")) for hook in parse_lifecycle_hooks(file)
+        ]
+    else:
+        hooks = parse_lifecycle_hooks(path)
     context._lifecycle_hooks = hooks
+    _merge_global_hooks(context, hooks)
 
 
-def _get_hooks(context: Any) -> list[LifecycleHook]:
-    """Retrieve stored lifecycle hooks from context."""
-    return getattr(context, "_lifecycle_hooks", [])
+def _merge_global_hooks(context: Any, hooks: list[LifecycleHook]) -> None:
+    """Accumulate ``*-all`` hooks so they survive per-feature overwrites.
+
+    ``setup_lifecycle_hooks`` replaces ``context._lifecycle_hooks`` on every
+    feature; without a separate store, ``after_all`` would only see the hooks
+    of the last feature parsed. ``-all`` hooks are tracked globally instead.
+    """
+    global_hooks: list[LifecycleHook] | None = getattr(context, "_lifecycle_hooks_global", None)
+    if global_hooks is None:
+        global_hooks = []
+        context._lifecycle_hooks_global = global_hooks
+    for hook in hooks:
+        if hook.hook_type.endswith("-all") and hook not in global_hooks:
+            global_hooks.append(hook)
+
+
+def _get_hooks(context: Any, hook_type: str) -> list[LifecycleHook]:
+    """Retrieve stored lifecycle hooks of the given type from context."""
+    hooks = [
+        hook for hook in getattr(context, "_lifecycle_hooks", []) if hook.hook_type == hook_type
+    ]
+    if hook_type.endswith("-all"):
+        for hook in getattr(context, "_lifecycle_hooks_global", []):
+            if hook.hook_type == hook_type and hook not in hooks:
+                hooks.append(hook)
+    return hooks
 
 
 def _run_hooks(
@@ -241,17 +285,16 @@ def _run_hooks(
             ``LifecycleStepError`` is raised after all hooks run.
             If False (default), the first error stops execution.
     """
-    hooks = _get_hooks(context)
+    hooks = _get_hooks(context, hook_type)
     errors: list[LifecycleStepError] = []
     for hook in hooks:
-        if hook.hook_type == hook_type:
-            try:
-                _execute_step(hook.step_text, context, hook_type=hook_type)
-            except LifecycleStepError as e:
-                if not continue_on_error:
-                    raise
-                logger.error("Hook %s failed: %s", hook_type, e)
-                errors.append(e)
+        try:
+            _execute_step(hook.step_text, context, hook_type=hook_type)
+        except LifecycleStepError as e:
+            if not continue_on_error:
+                raise
+            logger.error("Hook %s failed: %s", hook_type, e)
+            errors.append(e)
     if errors:
         details = "; ".join(str(e) for e in errors)
         raise LifecycleStepError(

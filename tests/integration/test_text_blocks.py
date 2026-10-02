@@ -48,16 +48,104 @@ def test_text_block_with_decorator(run_behave):
         """,
         steps_content="""
             from behave import given, then
-            from behave_comments import parse_text
+            from behave_comments import with_parsed_text
 
             @given("a YAML document")
-            def step_given_yaml(context):
-                parsed = parse_text(str(context.text), "yaml")
-                assert parsed == {"key": "value"}
+            @with_parsed_text()
+            def step_given_yaml(context, text_block):
+                assert text_block.content_type == "yaml"
+                assert text_block.parsed == {"key": "value"}
 
             @then("the text block is parsed")
             def step_then_parsed(context):
                 pass
+        """,
+    )
+    assert result.returncode == 0
+
+
+def test_media_type_on_docstring_opening_line(run_behave):
+    """A media type on the opening line (\"\"\"json) is recovered."""
+    result = run_behave(
+        feature_content="""
+            Feature: Media Type Opening Line
+
+              Scenario: Declared JSON
+                Given a JSON document
+                  \"\"\"json
+                  {"key": "value"}
+                  \"\"\"
+                Then the JSON was parsed
+        """,
+        steps_content="""
+            from behave import given, then
+            from behave_comments import extract_text_block
+
+            @given("a JSON document")
+            def step_given_json(context):
+                block = extract_text_block(context)
+                assert block.content_type == "json"
+                assert block.parsed == {"key": "value"}
+
+            @then("the JSON was parsed")
+            def step_then_parsed(context):
+                pass
+        """,
+    )
+    assert result.returncode == 0
+
+
+def test_decorator_with_anonymous_step_parameter(run_behave):
+    """with_parsed_text does not swallow positional step parameters."""
+    result = run_behave(
+        feature_content="""
+            Feature: Decorator With Params
+
+              Scenario: Anonymous param
+                Given a document with 3 items
+                  \"\"\"json
+                  {"key": "value"}
+                  \"\"\"
+        """,
+        steps_content="""
+            from behave import given, use_step_matcher
+            from behave_comments import with_parsed_text
+
+            use_step_matcher("re")
+
+            @given(r"a document with (\\d+) items")
+            @with_parsed_text()
+            def step_given_doc(context, count, text_block):
+                assert count == "3"
+                assert text_block.content_type == "json"
+                assert text_block.parsed == {"key": "value"}
+        """,
+    )
+    assert result.returncode == 0
+
+
+def test_content_type_as_first_body_line(run_behave):
+    """Content type as first line inside the doc string still works."""
+    result = run_behave(
+        feature_content="""
+            Feature: Body Content Type
+
+              Scenario: First line type
+                Given a JSON document
+                  \"\"\"
+                  json
+                  {"key": "value"}
+                  \"\"\"
+        """,
+        steps_content="""
+            from behave import given
+            from behave_comments import extract_text_block
+
+            @given("a JSON document")
+            def step_given_json(context):
+                block = extract_text_block(context)
+                assert block.content_type == "json"
+                assert block.parsed == {"key": "value"}
         """,
     )
     assert result.returncode == 0

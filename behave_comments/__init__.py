@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import logging
 
 from behave_comments.annotations import (
     annotations_to_tags,
     extract_annotations,
     inject_metadata,
+    parse_annotation_line,
 )
 from behave_comments.decorators import with_parsed_text
 from behave_comments.errors import (
@@ -19,6 +21,8 @@ from behave_comments.errors import (
 )
 from behave_comments.lifecycle import (
     LifecycleHook,
+    parse_lifecycle_hooks,
+    parse_lifecycle_line,
     run_after_all,
     run_after_feature,
     run_after_scenario,
@@ -38,7 +42,10 @@ from behave_comments.parser import (
     parse_text,
 )
 
-__version__ = "1.0.0"
+try:
+    __version__ = importlib.metadata.version("behave-comments")
+except importlib.metadata.PackageNotFoundError:
+    __version__ = "1.0.0"
 
 __all__ = [
     "Annotation",
@@ -55,6 +62,9 @@ __all__ = [
     "extract_annotations",
     "extract_text_block",
     "inject_metadata",
+    "parse_annotation_line",
+    "parse_lifecycle_hooks",
+    "parse_lifecycle_line",
     "parse_text",
     "run_after_all",
     "run_after_feature",
