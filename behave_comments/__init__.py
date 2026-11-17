@@ -45,7 +45,7 @@ from behave_comments.parser import (
 try:
     __version__ = importlib.metadata.version("behave-comments")
 except importlib.metadata.PackageNotFoundError:
-    __version__ = "1.1.0"
+    __version__ = "1.1.1"
 
 __all__ = [
     "Annotation",

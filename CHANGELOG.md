@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-11-17
+
+### Fixed
+
+- `run_before_step`/`run_after_step` no longer recurse forever: Behave fires
+  `before_step`/`after_step` hooks for `context.execute_steps()` substeps, so a
+  `# @before-step`/`# @after-step` hook executing through `execute_steps`
+  re-entered itself. Nested step-hook execution is now skipped while a
+  lifecycle step runs.
+- `parse_text` rejects non-string `text` and `content_type` arguments with
+  `TypeError` instead of leaking `AttributeError` or silently returning a
+  non-str "parsed" value for `text/plain`.
+- `json`/`yaml` parsing of pathologically nested input raises `ParseError`
+  instead of a raw `RecursionError`.
+- `_declared_content_type` no longer crashes on negative/float `text.line`
+  values or non-UTF-8 feature files, and reads only up to the doc string line
+  instead of the whole file.
+- `extract_text_block` reports `TextBlock.line` as the doc string opening line
+  (`text.line`) when available, and rejects non-string `text` values.
+- `setup_lifecycle_hooks` and `inject_metadata` reset their context state when
+  the feature filename is missing, so hooks/metadata from a previous call on
+  the same context cannot leak in.
+- `inject_metadata` and `with_parsed_text` validate `prefix`/`param_name` as
+  Python identifiers (`ValueError`).
+- Lifecycle steps starting with `And`, `But`, or `*` now resolve through the
+  registry fallback (previously rejected with "must start with ...").
+- `# language: ES` (uppercase code) resolves the localized keyword map.
+- `__version__` fallback matches the released version (was "1.0.0").
+- `SECURITY.md` supported-versions table updated for 1.1.x.
+
+### Changed
+
+- `SUPPORTED_CONTENT_TYPES` is derived from the parser map (single source).
+
 ## [1.1.0] - 2026-10-02
 
 ### Fixed
