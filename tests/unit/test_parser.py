@@ -1275,13 +1275,36 @@ def test_extract_text_block_invalid_encoding_file_falls_back(tmp_path) -> None:
 
 
 def test_parse_json_deep_nesting_raises_parse_error() -> None:
+    # Past the library depth limit the parser must fail with ParseError
+    # deterministically on every platform, not a raw RecursionError.
+    deep = "[" * 200 + "]" * 200
+    with pytest.raises(ParseError):
+        parse_text(deep, "json")
+
+
+def test_parse_json_stack_overflow_raises_parse_error() -> None:
     # Deeply nested JSON used to escape as a raw RecursionError.
     deep = "[" * 100000 + "]" * 100000
     with pytest.raises(ParseError):
         parse_text(deep, "json")
 
 
+def test_parse_json_moderate_nesting_parses() -> None:
+    deep = "[" * 50 + "]" * 50
+    result = parse_text(deep, "json")
+    node = result
+    for _ in range(49):
+        node = node[0]
+    assert node == []
+
+
 def test_parse_yaml_deep_nesting_raises_parse_error() -> None:
+    deep = "[" * 200 + "]" * 200
+    with pytest.raises(ParseError):
+        parse_text(deep, "yaml")
+
+
+def test_parse_yaml_stack_overflow_raises_parse_error() -> None:
     deep = "[" * 100000 + "]" * 100000
     with pytest.raises(ParseError):
         parse_text(deep, "yaml")

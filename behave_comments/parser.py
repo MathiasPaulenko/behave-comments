@@ -19,6 +19,32 @@ from behave_comments.models import TextBlock
 
 _TRIPLE_QUOTE_RE = re.compile(r'^(?:"""|\'\'\')(\s*(\S+)?\s*)?$')
 
+# Maximum container nesting depth accepted from JSON/YAML content.
+# CPython 3.14 measures C-level recursion in stack bytes rather than
+# frames, so relying on RecursionError alone is not deterministic across
+# platforms: the same input may overflow on one OS and parse on another.
+_MAX_NESTING_DEPTH = 100
+
+
+def _check_nesting_depth(value: Any, content_type: str) -> None:
+    """Raise ParseError when a parsed structure nests past the limit.
+
+    The check is iterative so it cannot itself overflow the stack.
+    """
+    stack: list[tuple[Any, int]] = [(value, 0)]
+    while stack:
+        node, depth = stack.pop()
+        if depth > _MAX_NESTING_DEPTH:
+            raise ParseError(
+                content_type=content_type,
+                detail=f"Maximum nesting depth of {_MAX_NESTING_DEPTH} exceeded",
+                line=None,
+            )
+        if isinstance(node, dict):
+            stack.extend((v, depth + 1) for v in node.values())
+        elif isinstance(node, list):
+            stack.extend((v, depth + 1) for v in node)
+
 
 def detect_content_type(opening_line: str) -> str:
     """Detect the content type from a triple-quote opening line.
@@ -72,7 +98,7 @@ def _parse_json(text: str) -> Any:
         ParseError: If the JSON is invalid.
     """
     try:
-        return json.loads(text)
+        result = json.loads(text)
     except json.JSONDecodeError as e:
         raise ParseError(
             content_type="json",
@@ -85,6 +111,8 @@ def _parse_json(text: str) -> Any:
             detail="Maximum nesting depth exceeded",
             line=None,
         ) from e
+    _check_nesting_depth(result, "json")
+    return result
 
 
 def _parse_csv(text: str) -> list[dict[str, str]]:
@@ -158,7 +186,7 @@ def _parse_yaml(text: str) -> Any:
         ParseError: If the YAML is invalid.
     """
     try:
-        return yaml.safe_load(text)
+        result = yaml.safe_load(text)
     except yaml.YAMLError as e:
         mark = getattr(e, "problem_mark", None)
         line = mark.line + 1 if mark is not None else None
@@ -173,6 +201,8 @@ def _parse_yaml(text: str) -> Any:
             detail="Maximum nesting depth exceeded",
             line=None,
         ) from e
+    _check_nesting_depth(result, "yaml")
+    return result
 
 
 _PARSERS: dict[str, Callable[[str], Any]] = {
