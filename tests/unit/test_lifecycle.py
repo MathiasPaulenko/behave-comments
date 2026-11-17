@@ -313,8 +313,16 @@ def test_setup_lifecycle_hooks_no_filename() -> None:
     context = FakeContext()
     feature = FakeFeature(filename=None)
     setup_lifecycle_hooks(context, feature)
-    with pytest.raises(AttributeError):
-        _ = context._lifecycle_hooks
+    assert context._lifecycle_hooks == []
+
+
+def test_setup_lifecycle_hooks_no_filename_resets_stale_hooks() -> None:
+    context = FakeContext()
+    context._lifecycle_hooks = [
+        LifecycleHook(hook_type="before-feature", step_text="Given x", line=1)
+    ]
+    setup_lifecycle_hooks(context, FakeFeature(filename=None))
+    assert context._lifecycle_hooks == []
 
 
 def test_setup_lifecycle_hooks_no_hooks(tmp_path) -> None:
@@ -965,7 +973,7 @@ def test_setup_lifecycle_hooks_empty_filename() -> None:
     context = FakeContext()
     feature = FakeFeature(filename="")
     setup_lifecycle_hooks(context, feature)
-    assert not hasattr(context, "_lifecycle_hooks")
+    assert context._lifecycle_hooks == []
 
 
 def test_parse_lifecycle_hooks_with_path_object(tmp_path) -> None:
@@ -1161,3 +1169,112 @@ def test_setup_lifecycle_hooks_global_dedup(monkeypatch, tmp_path) -> None:
     setup_lifecycle_hooks_from_path(context, path)
     setup_lifecycle_hooks(context, FakeFeature(filename=str(path)))
     assert len(context._lifecycle_hooks_global) == 1
+
+
+# ---------------------------------------------------------------------------
+# Regression: context-free step keywords (And/But/*) in registry fallback
+# ---------------------------------------------------------------------------
+
+
+def test_execute_step_and_keyword_searches_all_types(monkeypatch) -> None:
+    def impl(context: Any) -> None:
+        context.executed = True
+
+    _patch_registry(monkeypatch, FakeRegistry({"Given setup": impl}))
+    context = FakeContext()
+    _execute_step("And setup", context)
+    assert context.executed is True
+
+
+def test_execute_step_but_keyword_searches_all_types(monkeypatch) -> None:
+    def impl(context: Any) -> None:
+        context.executed = True
+
+    _patch_registry(monkeypatch, FakeRegistry({"Then checked": impl}))
+    context = FakeContext()
+    _execute_step("But checked", context)
+    assert context.executed is True
+
+
+def test_execute_step_star_keyword_searches_all_types(monkeypatch) -> None:
+    def impl(context: Any) -> None:
+        context.executed = True
+
+    _patch_registry(monkeypatch, FakeRegistry({"When runs": impl}))
+    context = FakeContext()
+    _execute_step("* runs", context)
+    assert context.executed is True
+
+
+def test_execute_step_star_matches_generic_step(monkeypatch) -> None:
+    def impl(context: Any) -> None:
+        context.executed = True
+
+    _patch_registry(monkeypatch, FakeRegistry({"Step generic": impl}))
+    context = FakeContext()
+    _execute_step("* generic", context)
+    assert context.executed is True
+
+
+def test_execute_step_and_keyword_not_found(monkeypatch) -> None:
+    _patch_registry(monkeypatch, FakeRegistry({}))
+    context = FakeContext()
+    with pytest.raises(LifecycleStepError) as exc_info:
+        _execute_step("And unknown", context)
+    assert "not found in registry" in exc_info.value.detail
+
+
+# ---------------------------------------------------------------------------
+# Regression: no infinite recursion for step hooks via execute_steps substeps
+# ---------------------------------------------------------------------------
+
+
+def test_run_before_step_nested_inside_lifecycle_step_is_skipped() -> None:
+    # Behave fires before_step hooks for execute_steps() substeps; without the
+    # re-entrancy guard a # @before-step hook recurses forever.
+    executed: list[str] = []
+
+    def impl(step_text: str) -> None:
+        executed.append(step_text)
+        run_before_step(context, FakeStep())
+
+    context = FakeContextWithExecuteSteps(impl)
+    context._lifecycle_hooks = [LifecycleHook(hook_type="before-step", step_text="Given x", line=1)]
+    run_before_step(context, FakeStep())
+    assert executed == ["Given x"]
+    assert context._lifecycle_executing is False
+
+
+def test_run_after_step_nested_inside_lifecycle_step_is_skipped() -> None:
+    executed: list[str] = []
+
+    def impl(step_text: str) -> None:
+        executed.append(step_text)
+        run_after_step(context, FakeStep())
+
+    context = FakeContextWithExecuteSteps(impl)
+    context._lifecycle_hooks = [LifecycleHook(hook_type="after-step", step_text="Then y", line=1)]
+    run_after_step(context, FakeStep())
+    assert executed == ["Then y"]
+    assert context._lifecycle_executing is False
+
+
+def test_lifecycle_executing_flag_restored_on_error() -> None:
+    def impl(step_text: str) -> None:
+        raise RuntimeError("boom")
+
+    context = FakeContextWithExecuteSteps(impl)
+    context._lifecycle_hooks = [LifecycleHook(hook_type="before-step", step_text="Given x", line=1)]
+    with pytest.raises(LifecycleStepError):
+        run_before_step(context, FakeStep())
+    assert context._lifecycle_executing is False
+
+
+def test_lifecycle_executing_flag_restored_on_outside_of_feature() -> None:
+    def impl(step_text: str) -> None:
+        raise ValueError("execute_steps() called outside of feature")
+
+    context = FakeContextWithExecuteSteps(impl)
+    with pytest.raises(LifecycleStepError):
+        _execute_step("do something", context)
+    assert context._lifecycle_executing is False

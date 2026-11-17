@@ -27,6 +27,7 @@ def run_behave_e2e(feature_name: str) -> subprocess.CompletedProcess:
         ],
         capture_output=True,
         text=True,
+        errors="replace",
         timeout=30,
         cwd=Path(__file__).parent,
         env=env,

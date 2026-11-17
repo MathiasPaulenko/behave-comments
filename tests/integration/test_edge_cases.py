@@ -496,10 +496,11 @@ def test_combined_annotations_and_lifecycle(run_behave):
 
 
 def test_before_step_hook_infinite_recursion_guard(run_behave):
-    """A before-step hook using execute_steps causes recursion in Behave.
+    """A before-step hook using execute_steps must not recurse forever.
 
-    This is a known Behave limitation: before_step fires for sub-steps too.
-    The test verifies the hook fails gracefully rather than hanging.
+    Behave fires before_step hooks for execute_steps() substeps too; the
+    library skips nested step-hook execution so the hook runs exactly once
+    per real step and the scenario passes.
     """
     result = run_behave(
         feature_content="""
@@ -508,9 +509,10 @@ def test_before_step_hook_infinite_recursion_guard(run_behave):
               # @before-step: Given the timer starts
               Scenario: S1
                 Given a step
+                Then the timer was started
         """,
         steps_content="""
-            from behave import given
+            from behave import given, then
 
             @given("the timer starts")
             def step_timer(context):
@@ -519,6 +521,10 @@ def test_before_step_hook_infinite_recursion_guard(run_behave):
             @given("a step")
             def step_given(context):
                 pass
+
+            @then("the timer was started")
+            def step_then_timer(context):
+                assert getattr(context, "timer_started", False)
         """,
         environment_content="""
             from behave_comments import setup_lifecycle_hooks, run_before_step
@@ -530,7 +536,7 @@ def test_before_step_hook_infinite_recursion_guard(run_behave):
                 run_before_step(context, step)
         """,
     )
-    assert result.returncode != 0
+    assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"
 
 
 def test_after_feature_hook_executes(run_behave):

@@ -302,3 +302,19 @@ def test_with_parsed_text_empty_json_raises() -> None:
     step = FakeStep(text="json\n")
     with pytest.raises(ParseError):
         step_func(context, step)
+
+
+# ---------------------------------------------------------------------------
+# Regression: param_name validation
+# ---------------------------------------------------------------------------
+
+
+def test_with_parsed_text_invalid_param_name_raises_value_error() -> None:
+    for bad in ("not a name", "", "9x"):
+        with pytest.raises(ValueError):
+            with_parsed_text(bad)
+
+
+def test_with_parsed_text_non_string_param_name_raises_value_error() -> None:
+    with pytest.raises(ValueError):
+        with_parsed_text(None)  # type: ignore[arg-type]

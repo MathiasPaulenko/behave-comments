@@ -17,18 +17,6 @@ import yaml
 from behave_comments.errors import ContentTypeError, ParseError
 from behave_comments.models import TextBlock
 
-SUPPORTED_CONTENT_TYPES: frozenset[str] = frozenset(
-    {
-        "text/plain",
-        "json",
-        "yaml",
-        "xml",
-        "csv",
-        "form-urlencoded",
-        "graphql",
-    }
-)
-
 _TRIPLE_QUOTE_RE = re.compile(r'^(?:"""|\'\'\')(\s*(\S+)?\s*)?$')
 
 
@@ -90,6 +78,12 @@ def _parse_json(text: str) -> Any:
             content_type="json",
             detail=str(e),
             line=e.lineno,
+        ) from e
+    except RecursionError as e:
+        raise ParseError(
+            content_type="json",
+            detail="Maximum nesting depth exceeded",
+            line=None,
         ) from e
 
 
@@ -173,6 +167,12 @@ def _parse_yaml(text: str) -> Any:
             detail=str(e),
             line=line,
         ) from e
+    except RecursionError as e:
+        raise ParseError(
+            content_type="yaml",
+            detail="Maximum nesting depth exceeded",
+            line=None,
+        ) from e
 
 
 _PARSERS: dict[str, Callable[[str], Any]] = {
@@ -184,6 +184,8 @@ _PARSERS: dict[str, Callable[[str], Any]] = {
     "form-urlencoded": _parse_form_urlencoded,
     "graphql": _parse_graphql,
 }
+
+SUPPORTED_CONTENT_TYPES: frozenset[str] = frozenset(_PARSERS)
 
 
 def parse_text(text: str, content_type: str = "text/plain") -> Any:
@@ -198,11 +200,16 @@ def parse_text(text: str, content_type: str = "text/plain") -> Any:
         The parsed Python object.
 
     Raises:
+        TypeError: If ``text`` or ``content_type`` is not a string.
         ContentTypeError: If the content type is not supported.
         ParseError: If parsing fails.
     """
+    if not isinstance(text, str):
+        raise TypeError(f"'text' must be str, got {type(text).__name__}")
     if content_type is None:
         raise ContentTypeError("None")
+    if not isinstance(content_type, str):
+        raise TypeError(f"'content_type' must be str, got {type(content_type).__name__}")
     normalized = content_type.strip().lower()
     if normalized not in SUPPORTED_CONTENT_TYPES:
         raise ContentTypeError(content_type)
@@ -241,7 +248,7 @@ def _declared_content_type(source: Any, text: Any) -> str | None:
             return normalized
 
     line_no = getattr(text, "line", None)
-    if not line_no:
+    if not isinstance(line_no, int) or line_no < 1:
         return None
 
     filename = getattr(source, "filename", None)
@@ -251,9 +258,16 @@ def _declared_content_type(source: Any, text: Any) -> str | None:
     if not filename:
         return None
 
+    opening: str | None = None
     try:
-        opening = Path(filename).read_text(encoding="utf-8-sig").splitlines()[line_no - 1].strip()
-    except (OSError, IndexError):
+        with Path(filename).open(encoding="utf-8-sig") as f:
+            for number, raw in enumerate(f, start=1):
+                if number == line_no:
+                    opening = raw.strip()
+                    break
+    except (OSError, UnicodeDecodeError):
+        return None
+    if opening is None:
         return None
 
     match = _DOCSTRING_OPEN_RE.match(opening)
@@ -291,6 +305,8 @@ def extract_text_block(step: Any) -> TextBlock | None:
     text = getattr(step, "text", None)
     if not text:
         return None
+    if not isinstance(text, str):
+        raise TypeError(f"'step.text' must be str, got {type(text).__name__}")
 
     content_type = _declared_content_type(step, text)
     content = str(text)
@@ -305,7 +321,13 @@ def extract_text_block(step: Any) -> TextBlock | None:
             content_type = "text/plain"
 
     parsed = parse_text(content, content_type)
-    line = getattr(step, "line", 0)
+    # ``text.line`` (when present, e.g. behave.model.Text) is the doc string
+    # opening line; ``step.line`` is the step keyword line.
+    line = getattr(text, "line", None)
+    if not isinstance(line, int) or line < 1:
+        line = getattr(step, "line", 0)
+    if not isinstance(line, int):
+        line = 0
 
     return TextBlock(
         content=content,

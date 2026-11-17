@@ -103,7 +103,14 @@ def parse_lifecycle_hooks(feature_path: str | Path) -> list[LifecycleHook]:
     return hooks
 
 
-_STEP_TYPE_RE = re.compile(r"^(?P<step_type>Given|When|Then|Step)\s+(?P<name>.+)$", re.IGNORECASE)
+_STEP_TYPE_RE = re.compile(
+    r"^(?P<step_type>Given|When|Then|And|But|Step|\*)\s+(?P<name>.+)$",
+    re.IGNORECASE,
+)
+
+# And/But/* inherit the step type in Gherkin; a standalone hook has no
+# previous step, so every registered type is tried in this order.
+_CONTEXT_FREE_STEP_TYPES = ("given", "when", "then", "step")
 
 
 class _SimpleStep:
@@ -137,18 +144,24 @@ def _execute_step(
     """
     execute_steps = getattr(context, "execute_steps", None)
     if callable(execute_steps):
+        # Behave fires before_step/after_step hooks for substeps too; mark the
+        # context so those nested hook invocations skip lifecycle execution
+        # instead of recursing forever.
+        nested = getattr(context, "_lifecycle_executing", False)
         try:
+            context._lifecycle_executing = True
             execute_steps(step_text)
-            return
         except Exception as e:
-            if "outside of feature" in str(e).lower():
-                pass
-            else:
+            if "outside of feature" not in str(e).lower():
                 raise LifecycleStepError(
                     hook_type=hook_type,
                     step_text=step_text,
                     detail=str(e),
                 ) from e
+        else:
+            return
+        finally:
+            context._lifecycle_executing = nested
 
     try:
         from behave.step_registry import registry as behave_registry
@@ -164,15 +177,20 @@ def _execute_step(
         raise LifecycleStepError(
             hook_type=hook_type,
             step_text=step_text,
-            detail="Step text must start with Given, When, Then, or Step.",
+            detail="Step text must start with Given, When, Then, And, But, *, or Step.",
         )
 
-    step = _SimpleStep(
-        step_type=match_obj.group("step_type").lower(),
-        name=match_obj.group("name"),
-    )
+    step_type = match_obj.group("step_type").lower()
+    name = match_obj.group("name")
 
-    result = behave_registry.find_match(step)
+    if step_type in ("and", "but", "*"):
+        result = None
+        for candidate in _CONTEXT_FREE_STEP_TYPES:
+            result = behave_registry.find_match(_SimpleStep(candidate, name))
+            if result is not None:
+                break
+    else:
+        result = behave_registry.find_match(_SimpleStep(step_type, name))
     if result is None:
         raise LifecycleStepError(
             hook_type=hook_type,
@@ -204,6 +222,9 @@ def setup_lifecycle_hooks(
     """
     filename = getattr(feature, "filename", None)
     if not filename:
+        # Reset so hooks from a previous setup on the same context cannot
+        # leak into a feature whose file cannot be determined.
+        context._lifecycle_hooks = []
         return
 
     hooks = parse_lifecycle_hooks(filename)
@@ -386,6 +407,8 @@ def run_before_step(
         continue_on_error: If True, continue executing remaining hooks
             when one fails. Defaults to False.
     """
+    if getattr(context, "_lifecycle_executing", False):
+        return
     _run_hooks(context, "before-step", continue_on_error=continue_on_error)
 
 
@@ -403,6 +426,8 @@ def run_after_step(
         continue_on_error: If True, continue executing remaining hooks
             when one fails. Defaults to False.
     """
+    if getattr(context, "_lifecycle_executing", False):
+        return
     _run_hooks(context, "after-step", continue_on_error=continue_on_error)
 
 

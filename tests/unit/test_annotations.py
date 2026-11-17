@@ -445,8 +445,14 @@ def test_inject_metadata_no_filename() -> None:
     context = FakeContext()
     feature = FakeFeature(filename=None)
     inject_metadata(context, feature)
-    with pytest.raises(AttributeError):
-        _ = context.metadata
+    assert context.metadata == {}
+
+
+def test_inject_metadata_no_filename_resets_stale_metadata() -> None:
+    context = FakeContext()
+    context.metadata = {"feature": [{"key": "old", "value": "1"}]}
+    inject_metadata(context, FakeFeature(filename=None))
+    assert context.metadata == {}
 
 
 def test_inject_metadata_no_annotations(tmp_path) -> None:
@@ -842,7 +848,7 @@ def test_inject_metadata_empty_string_filename() -> None:
     context = FakeContext()
     feature = FakeFeature(filename="")
     inject_metadata(context, feature)
-    assert not hasattr(context, "metadata")
+    assert context.metadata == {}
 
 
 def test_annotations_to_tags_unicode_value() -> None:
@@ -1173,6 +1179,30 @@ def test_detect_language_skips_blank_lines(tmp_path) -> None:
     path = _write_feature(
         tmp_path,
         "\n\n# language: es\nCaracterística: T\n# @id SC-1\nEscenario: S1\n  Dado x\n",
+    )
+    anns = extract_annotations(path)
+    assert anns[0].scope == "scenario"
+    assert anns[0].scope_name == "S1"
+
+
+# ---------------------------------------------------------------------------
+# Regression: inject_metadata validation and language detection
+# ---------------------------------------------------------------------------
+
+
+def test_inject_metadata_invalid_prefix_raises_value_error() -> None:
+    context = FakeContext()
+    feature = FakeFeature(filename=None)
+    for bad in ("not an identifier", "", "9lives", "a-b"):
+        with pytest.raises(ValueError):
+            inject_metadata(context, feature, prefix=bad)
+
+
+def test_detect_language_uppercase_code(tmp_path) -> None:
+    """# language: ES (uppercase) must resolve the Spanish keyword map."""
+    path = _write_feature(
+        tmp_path,
+        "# language: ES\nCaracterística: T\n# @id SC-1\nEscenario: S1\n  Dado x\n",
     )
     anns = extract_annotations(path)
     assert anns[0].scope == "scenario"

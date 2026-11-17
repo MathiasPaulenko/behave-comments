@@ -61,6 +61,7 @@ def run_behave(tmp_path: Path) -> Callable[..., BehaveResult]:
             [sys.executable, "-m", "behave", "--no-color", "--format=plain", str(features_dir)],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=30,
         )
 

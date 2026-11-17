@@ -67,7 +67,7 @@ def _detect_language(content: str) -> str:
         if not stripped:
             continue
         match = _LANGUAGE_RE.match(stripped)
-        return match.group("lang") if match else "en"
+        return match.group("lang").lower() if match else "en"
     return "en"
 
 
@@ -310,10 +310,19 @@ def inject_metadata(
         context: Behave's context object.
         feature: The Behave feature object (must have ``filename`` attribute).
         prefix: The attribute name to store metadata under.
-            Defaults to ``"metadata"``.
+            Defaults to ``"metadata"``. Must be a valid Python identifier.
+
+    Raises:
+        ValueError: If ``prefix`` is not a valid attribute name.
     """
+    if not isinstance(prefix, str) or not prefix.isidentifier():
+        raise ValueError(f"'prefix' must be a valid identifier, got {prefix!r}")
+
     filename = getattr(feature, "filename", None)
     if not filename:
+        # Reset so metadata from a previous call on the same context
+        # cannot leak into a feature whose file cannot be determined.
+        setattr(context, prefix, {})
         return
 
     annotations = extract_annotations(filename)

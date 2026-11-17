@@ -1189,3 +1189,107 @@ def test_extract_text_block_line_out_of_range(tmp_path) -> None:
     block = extract_text_block(step)
     assert block is not None
     assert block.content_type == "text/plain"
+
+
+# ---------------------------------------------------------------------------
+# Regression: input validation and defensive file reading
+# ---------------------------------------------------------------------------
+
+
+def test_parse_text_non_string_text_raises_type_error() -> None:
+    with pytest.raises(TypeError):
+        parse_text(123, "json")
+
+
+def test_parse_text_text_plain_non_string_raises_type_error() -> None:
+    # text/plain used to return the input unchanged, silently leaking
+    # a non-str value through the "parsed" result.
+    with pytest.raises(TypeError):
+        parse_text(123, "text/plain")
+
+
+def test_parse_text_non_string_content_type_raises_type_error() -> None:
+    # Used to fail with AttributeError: 'int' object has no attribute 'strip'.
+    with pytest.raises(TypeError):
+        parse_text("x", 42)
+
+
+def test_supported_content_types_matches_parsers() -> None:
+    from behave_comments.parser import _PARSERS
+
+    assert frozenset(_PARSERS) == SUPPORTED_CONTENT_TYPES
+
+
+def test_extract_text_block_non_string_text_raises_type_error() -> None:
+    step = FakeStep(text="x")
+    step.text = 42
+    with pytest.raises(TypeError):
+        extract_text_block(step)
+
+
+def test_extract_text_block_uses_docstring_opening_line(tmp_path) -> None:
+    """TextBlock.line is the doc string line (text.line), not the step's."""
+    path = _write_docstring_feature(tmp_path, '"""json')
+    step = FakeStep(text="", line=2)
+    step.text = FakeText('{"a": 1}', line=4)
+    step.filename = str(path)
+    block = extract_text_block(step)
+    assert block is not None
+    assert block.line == 4
+
+
+def test_extract_text_block_negative_text_line_falls_back(tmp_path) -> None:
+    # A negative text.line used to index splitlines() from the end,
+    # reading a wrong line and possibly a bogus media type.
+    path = _write_docstring_feature(tmp_path, '"""json')
+    step = FakeStep(text="x")
+    step.text = FakeText("just text", line=-2)
+    step.filename = str(path)
+    block = extract_text_block(step)
+    assert block is not None
+    assert block.content_type == "text/plain"
+
+
+def test_extract_text_block_float_text_line_falls_back(tmp_path) -> None:
+    # A non-int text.line used to escape as TypeError from splitlines()[float].
+    path = _write_docstring_feature(tmp_path, '"""json')
+    step = FakeStep(text="x")
+    step.text = FakeText("just text")
+    step.text.line = 4.0
+    step.filename = str(path)
+    block = extract_text_block(step)
+    assert block is not None
+    assert block.content_type == "text/plain"
+
+
+def test_extract_text_block_invalid_encoding_file_falls_back(tmp_path) -> None:
+    # UnicodeDecodeError from the feature file used to propagate uncaught.
+    path = tmp_path / "bad.feature"
+    path.write_bytes(b"Feature: T\n\x80\xfe invalid\n")
+    step = FakeStep(text="x")
+    step.text = FakeText("just text", line=1)
+    step.filename = str(path)
+    block = extract_text_block(step)
+    assert block is not None
+    assert block.content_type == "text/plain"
+
+
+def test_parse_json_deep_nesting_raises_parse_error() -> None:
+    # Deeply nested JSON used to escape as a raw RecursionError.
+    deep = "[" * 100000 + "]" * 100000
+    with pytest.raises(ParseError):
+        parse_text(deep, "json")
+
+
+def test_parse_yaml_deep_nesting_raises_parse_error() -> None:
+    deep = "[" * 100000 + "]" * 100000
+    with pytest.raises(ParseError):
+        parse_text(deep, "yaml")
+
+
+def test_extract_text_block_non_int_step_line_defaults_to_zero() -> None:
+    step = FakeStep(text="just text")
+    step.line = "abc"
+    block = extract_text_block(step)
+    assert block is not None
+    assert block.line == 0

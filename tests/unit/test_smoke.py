@@ -75,7 +75,12 @@ def test_version_fallback_when_not_installed(monkeypatch) -> None:
 
     monkeypatch.setattr(importlib.metadata, "version", raise_not_found)
     reloaded = importlib.reload(behave_comments)
-    assert isinstance(reloaded.__version__, str)
-    assert reloaded.__version__ != ""
+    # The fallback must stay in sync with the declared project version.
+    import tomllib
+    from pathlib import Path
+
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    expected = tomllib.loads(pyproject.read_text())["project"]["version"]
+    assert reloaded.__version__ == expected
     monkeypatch.undo()
     importlib.reload(behave_comments)

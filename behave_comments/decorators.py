@@ -18,11 +18,16 @@ def with_parsed_text(
 
     Args:
         param_name: The name of the keyword argument to inject.
-            Defaults to ``"text_block"``.
+            Defaults to ``"text_block"``. Must be a valid Python identifier.
 
     Returns:
         A decorator function.
+
+    Raises:
+        ValueError: If ``param_name`` is not a valid identifier.
     """
+    if not isinstance(param_name, str) or not param_name.isidentifier():
+        raise ValueError(f"'param_name' must be a valid identifier, got {param_name!r}")
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
